@@ -1,127 +1,218 @@
 import React, { useState } from 'react';
-import { Mail, ShieldCheck, Truck, RefreshCw, Flame } from 'lucide-react';
+import { ArrowRight, Check, ShieldCheck, Truck, HelpCircle, Mail, Clock, RefreshCw, Lock } from 'lucide-react';
 
-export const Footer: React.FC = () => {
-  const [email, setEmail] = useState('');
+interface FooterProps {
+  onOpenFaq: () => void;
+  onOpenTrackOrder: () => void;
+  onOpenCustomerPortal?: () => void;
+}
+
+export const Footer: React.FC<FooterProps> = ({ onOpenFaq, onOpenTrackOrder, onOpenCustomerPortal }) => {
+  const [newsletterEmail, setNewsletterEmail] = useState('');
   const [isSubscribed, setIsSubscribed] = useState(false);
 
   const handleSubscribe = (e: React.FormEvent) => {
     e.preventDefault();
-    if (email) {
+    if (newsletterEmail.trim()) {
       setIsSubscribed(true);
-      setEmail('');
+      setNewsletterEmail('');
     }
   };
 
   return (
-    <footer className="bg-stone-900 text-stone-300 dark:bg-stone-950 border-t border-stone-800 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        
-        {/* Newsletter Section */}
-        <div className="p-8 rounded-3xl bg-stone-800/60 border border-stone-700/80 mb-16 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div>
-            <span className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-1.5">
-              <Flame className="w-4 h-4 text-red-500" />
-              Sanelow Label VIP Circle
-            </span>
-            <h3 className="text-2xl font-bold text-white mt-1">First Access to Limited Drops</h3>
-            <p className="text-xs text-stone-400 mt-1 max-w-md">
-              Get notified first on new heavyweight hoodie releases, tour tee restocks, and limited 180g vinyl pressings.
-            </p>
-          </div>
-
-          <div className="w-full md:w-auto">
-            {isSubscribed ? (
-              <div className="px-5 py-3 rounded-2xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold">
-                ✓ Welcome to Sanelow VIP! Check your email for your $10 discount code.
+    <footer className="bg-white border-t border-zinc-200 text-zinc-600">
+      {/* Newsletter signup container */}
+      <div className="border-b border-zinc-200 py-12 lg:py-14">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="p-8 sm:p-10 rounded-3xl bg-zinc-50 border border-zinc-200 flex flex-col lg:flex-row items-center justify-between gap-8 shadow-xs">
+            <div className="space-y-2 text-center lg:text-left max-w-xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-mono font-bold uppercase">
+                <span>EXCLUSIVE DROP ACCESS</span>
               </div>
-            ) : (
-              <form onSubmit={handleSubscribe} className="flex gap-2 w-full max-w-md">
-                <input
-                  type="email"
-                  required
-                  placeholder="SanelowLabel@gmail.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="flex-1 px-4 py-3 rounded-2xl text-xs bg-stone-900 text-white placeholder-stone-500 border border-stone-700 focus:outline-none focus:border-red-500"
+              <h3 className="text-2xl sm:text-3xl font-black text-black">
+                Get 15% OFF Your First Merch Drop.
+              </h3>
+              <p className="text-xs sm:text-sm text-zinc-600">
+                Subscribe for private pre-order allocations, archive restock notifications, and early streetwear drop announcements.
+              </p>
+            </div>
+
+            <div className="w-full lg:w-auto">
+              {isSubscribed ? (
+                <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs font-mono flex items-center gap-3">
+                  <Check className="w-5 h-5 shrink-0 text-red-600" />
+                  <div>
+                    <div className="font-bold uppercase">You are on the VIP Drop list!</div>
+                    <div className="text-[11px] text-zinc-600 mt-0.5">
+                      Use code <strong className="text-black">MERCH15</strong> at checkout for 15% off your entire bag.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-2 w-full max-w-md">
+                  <input
+                    type="email"
+                    required
+                    value={newsletterEmail}
+                    onChange={(e) => setNewsletterEmail(e.target.value)}
+                    placeholder="Enter your email address..."
+                    className="px-4 py-3 rounded-xl bg-white border border-zinc-300 text-xs text-black placeholder-zinc-400 font-mono focus:outline-none focus:border-red-600 flex-1"
+                  />
+                  <button
+                    type="submit"
+                    className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <span>Join Drop List</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Footer Links */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-12">
+          {/* Col 1 & 2: Brand Info - Logo ONLY without text */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="flex items-center">
+              <div className="w-12 h-12 rounded-xl overflow-hidden bg-white border border-zinc-200 flex items-center justify-center shadow-sm shrink-0">
+                <img
+                  src="/sanelow-logo.jpg"
+                  alt="Sanelow Store Logo"
+                  className="w-full h-full object-contain p-0.5"
                 />
-                <button
-                  type="submit"
-                  className="px-6 py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition cursor-pointer"
-                >
-                  Subscribe
-                </button>
-              </form>
-            )}
-          </div>
-        </div>
-
-        {/* Links Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-8 text-xs pb-12 border-b border-stone-800">
-          
-          <div className="col-span-2 space-y-3">
-            <div className="flex items-center gap-2.5">
-              <span className="w-8 h-8 rounded-xl bg-red-600 text-white flex items-center justify-center font-black text-lg font-sans">
-                S
-              </span>
-              <span className="text-lg font-black tracking-wider text-white uppercase">SANELOW LABEL MERCH</span>
+              </div>
             </div>
-            <p className="text-stone-400 max-w-sm leading-relaxed">
-              Official store for Sanelow Label apparel, heavyweight embroidered hoodies, tour graphic tees, limited 180g physical vinyl releases, and record label accessories.
+            <p className="text-xs text-zinc-600 leading-relaxed max-w-sm">
+              Your premier direct-to-consumer destination for custom-milled heavyweight French Terry apparel, vintage acid-washed merch archives, and limited streetwear drops with global air freight tracking.
             </p>
-            <div className="flex items-center gap-2 text-stone-400 pt-1 text-[11px]">
-              <Mail className="w-3.5 h-3.5 text-red-500" />
-              <span>SanelowLabel@gmail.com</span>
+            <div className="flex items-center gap-3 pt-1 text-xs font-mono text-zinc-500">
+              <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+              <span>Worldwide express air cargo active daily</span>
             </div>
           </div>
 
-          <div>
-            <h4 className="font-bold text-white uppercase tracking-wider mb-3">Merch Categories</h4>
-            <ul className="space-y-2 text-stone-400">
-              <li><a href="#" className="hover:text-white transition">Hoodies & Sweats</a></li>
-              <li><a href="#" className="hover:text-white transition">T-Shirts & Tour Tees</a></li>
-              <li><a href="#" className="hover:text-white transition">Hats & Headwear</a></li>
-              <li><a href="#" className="hover:text-white transition">Vinyl & Physical Music</a></li>
-              <li><a href="#" className="hover:text-white transition">Accessories & Bags</a></li>
+          {/* Col 3: Customer Care & Tracking */}
+          <div className="space-y-3">
+            <div className="text-xs font-mono uppercase font-black text-black tracking-wider">
+              Order Assistance
+            </div>
+            <ul className="space-y-2 text-xs">
+              <li>
+                <button
+                  type="button"
+                  onClick={onOpenTrackOrder}
+                  className="hover:text-red-600 transition-colors text-left flex items-center gap-1.5 cursor-pointer text-zinc-700 font-bold"
+                >
+                  <Truck className="w-3.5 h-3.5 text-red-600" />
+                  <span>Track Your Shipment</span>
+                </button>
+              </li>
+              {onOpenCustomerPortal && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={onOpenCustomerPortal}
+                    className="hover:text-red-600 transition-colors text-left cursor-pointer text-zinc-700"
+                  >
+                    Customer Account Portal
+                  </button>
+                </li>
+              )}
+              <li>
+                <button
+                  type="button"
+                  onClick={onOpenFaq}
+                  className="hover:text-red-600 transition-colors text-left flex items-center gap-1.5 cursor-pointer text-zinc-700"
+                >
+                  <HelpCircle className="w-3.5 h-3.5 text-red-600" />
+                  <span>Frequently Asked Questions</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={onOpenFaq}
+                  className="hover:text-red-600 transition-colors text-left cursor-pointer text-zinc-600"
+                >
+                  Fabric Sizing & Fit Guide
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={onOpenFaq}
+                  className="hover:text-red-600 transition-colors text-left cursor-pointer text-zinc-600"
+                >
+                  30-Day Authentic Fit Exchanges
+                </button>
+              </li>
             </ul>
           </div>
 
-          <div>
-            <h4 className="font-bold text-white uppercase tracking-wider mb-3">Customer Service</h4>
-            <ul className="space-y-2 text-stone-400">
-              <li><a href="#" className="hover:text-white transition">Track Order & Shipping</a></li>
-              <li><a href="#" className="hover:text-white transition">Size Guide & Fit Chart</a></li>
-              <li><a href="#" className="hover:text-white transition">30-Day Easy Exchanges</a></li>
-              <li><a href="#" className="hover:text-white transition">Care Instructions</a></li>
-              <li><a href="#" className="hover:text-white transition">Contact Label Team</a></li>
+          {/* Col 4: Guarantees */}
+          <div className="space-y-3">
+            <div className="text-xs font-mono uppercase font-black text-black tracking-wider">
+              Brand Guarantee
+            </div>
+            <ul className="space-y-2.5 text-xs text-zinc-600">
+              <li className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-red-600 shrink-0" />
+                <span>Custom-Milled 450 GSM Quality</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-red-600 shrink-0" />
+                <span>24-Hour Express Dispatch</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-red-600 shrink-0" />
+                <span>256-Bit SSL Encrypted Checkout</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-red-600 shrink-0" />
+                <span>Hassle-Free Fit Exchanges</span>
+              </li>
             </ul>
           </div>
 
-          <div>
-            <h4 className="font-bold text-white uppercase tracking-wider mb-3">Sanelow Standards</h4>
-            <ul className="space-y-2 text-stone-400">
-              <li><a href="#" className="hover:text-white transition">480GSM Organic Fleece</a></li>
-              <li><a href="#" className="hover:text-white transition">Sustainable Eco-Packaging</a></li>
-              <li><a href="#" className="hover:text-white transition">Sanelow Label Publishing</a></li>
-              <li><a href="#" className="hover:text-white transition">Artist Network</a></li>
-            </ul>
+          {/* Col 5: Helpdesk & Contact */}
+          <div className="space-y-3">
+            <div className="text-xs font-mono uppercase font-black text-black tracking-wider">
+              Merch Concierge
+            </div>
+            <p className="text-xs text-zinc-600 leading-relaxed">
+              Have questions regarding sizing, custom drop allocations, or an active order? Our concierge is on standby.
+            </p>
+            <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-[11px] font-mono text-zinc-700 space-y-1">
+              <span className="text-red-600 font-bold block">DIRECT EMAIL:</span>
+              <a
+                href="mailto:meandmusicdistributors@gmail.com"
+                className="text-black font-semibold hover:underline block break-all"
+              >
+                meandmusicdistributors@gmail.com
+              </a>
+            </div>
           </div>
-
         </div>
 
-        {/* Bottom Credits */}
-        <div className="pt-8 flex flex-col sm:flex-row items-center justify-between text-[11px] text-stone-500 gap-4">
-          <p>© 2026 Sanelow Label Official Merch. All rights reserved. Contact: SanelowLabel@gmail.com</p>
-          <div className="flex items-center gap-6">
-            <a href="#" className="hover:text-stone-300">Privacy Policy</a>
-            <a href="#" className="hover:text-stone-300">Terms of Service</a>
-            <a href="#" className="hover:text-stone-300">Cookie Settings</a>
+        {/* Bottom copyright & accepted payments */}
+        <div className="mt-12 pt-6 border-t border-zinc-200 flex flex-col md:flex-row items-center justify-between gap-4 text-xs font-mono text-zinc-500">
+          <div>
+            © {new Date().getFullYear()} Sanelow Merch Store. All rights reserved.
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-zinc-600 text-xs">
+            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">VISA</span>
+            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">Mastercard</span>
+            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">AMEX</span>
+            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">PayPal</span>
+            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">Apple Pay</span>
           </div>
         </div>
-
       </div>
     </footer>
   );
 };
-
-

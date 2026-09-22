@@ -1,98 +1,186 @@
-export type ProductCategory = 'All' | 'Hoodies & Sweats' | 'T-Shirts & Tees' | 'Hats & Headwear' | 'Vinyl & Physical' | 'Accessories & Bags' | 'Outerwear';
+export type Category =
+  | 'all'
+  | 'hoodies-fleece'
+  | 'graphic-tees'
+  | 'outerwear'
+  | 'headwear'
+  | 'bottoms'
+  | 'accessories';
 
-export interface ColorOption {
-  name: string;
-  hex: string;
-}
+export type DropCollection =
+  | 'all'
+  | "Summer '26 Drop"
+  | 'Limited Edition'
+  | 'Core Essentials'
+  | 'Heavyweight Fleece'
+  | 'Tour Vault';
 
-export interface ProductVariants {
-  sizes?: string[];
-  colors?: ColorOption[];
-}
+export type MerchSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | '2XL' | '3XL';
 
-export interface Product {
-  id: string;
-  name: string;
-  tagline: string;
-  category: ProductCategory;
-  price: number;
-  originalPrice?: number;
-  rating: number;
-  reviewCount: number;
-  inStock: boolean;
-  stockQuantity: number;
-  isNew?: boolean;
-  isFeatured?: boolean;
-  isBestSeller?: boolean;
-  images: string[];
-  description: string;
-  features: string[];
-  variants?: ProductVariants;
-  specs?: Record<string, string>;
-  tags: string[];
+export type CurrencyCode = 'USD' | 'EUR' | 'GBP' | 'ZAR' | 'CAD' | 'AUD';
+
+export interface CurrencyConfig {
+  code: CurrencyCode;
+  symbol: string;
+  rateFromUSD: number;
+  label: string;
 }
 
 export interface Review {
   id: string;
-  productId: string;
   author: string;
-  avatar: string;
+  country: string;
+  countryCode?: string;
   rating: number;
   date: string;
-  title: string;
   comment: string;
   verified: boolean;
+  userImage?: string;
+  sizePurchased?: string;
+  heightWeight?: string;
+}
+
+export interface ProductColor {
+  name: string;
+  hex: string;
+  inStock?: boolean;
+}
+
+export interface BundleDeal {
+  quantity: number;
+  discountPercent: number;
+  label: string;
+  popular?: boolean;
+}
+
+export interface FabricSpec {
+  label: string;
+  value: string;
+}
+
+export interface SizingSpec {
+  size: MerchSize;
+  chest: string;
+  length: string;
+  shoulder?: string;
+}
+
+export interface Product {
+  id: string;
+  title: string;
+  tagline: string;
+  category: Category;
+  dropCollection: string;
+  sku: string;
+  priceUSD: number;
+  compareAtPriceUSD: number;
+  discountPercent: number;
+  badge?: 'LIMITED DROP' | 'PRE-ORDER' | 'BESTSELLER' | 'SOLD OUT RISK' | 'CORE ESSENTIAL' | 'ARCHIVE' | 'HOT DROP';
+  isPreOrder: boolean;
+  preOrderShipDate?: string;
+  stockCount: number;
+  soldCount: number;
+  rating: number;
+  reviewsCount: number;
+  description: string;
+  features: string[];
+  fabricSpecs: FabricSpec[];
+  sizingDetails: SizingSpec[];
+  sizes: MerchSize[];
+  colors: ProductColor[];
+  images: string[];
+  bundleDeals?: BundleDeal[];
+  reviews: Review[];
+  shippingEstimate: string;
 }
 
 export interface CartItem {
-  id: string; // unique ID incorporating product id + variant selections
+  id: string; // composite key: product.id + size + color.name
   product: Product;
+  selectedSize: MerchSize;
+  selectedColor: ProductColor;
   quantity: number;
-  selectedSize?: string;
-  selectedColor?: ColorOption;
+  appliedDiscountPercent?: number;
 }
 
-export interface FilterState {
-  category: ProductCategory;
-  searchQuery: string;
-  minPrice: number;
-  maxPrice: number;
-  sortBy: 'featured' | 'price-low' | 'price-high' | 'rating' | 'newest';
-  inStockOnly: boolean;
-  selectedTag: string | null;
-}
-
-export interface CustomerInfo {
+export interface ShippingAddress {
   fullName: string;
   email: string;
   phone: string;
-  address: string;
+  street: string;
+  apartment?: string;
   city: string;
-  state: string;
-  zipCode: string;
+  provinceOrState: string;
+  postalCode: string;
   country: string;
+  shippingMethod: 'standard_tracked' | 'express_courier' | 'vip_insured';
+  paymentMethod: 'card' | 'paypal' | 'apple_pay' | 'instant_eft';
 }
 
-export interface Order {
-  id: string;
-  items: CartItem[];
-  subtotal: number;
-  discount: number;
-  tax: number;
-  shipping: number;
-  total: number;
-  promoCode?: string;
-  date: string;
-  status: 'Processing' | 'Shipped' | 'Out for Delivery' | 'Delivered';
-  customer: CustomerInfo;
-  paymentMethod: string;
-  estimatedDelivery: string;
-}
-
-export interface ToastNotification {
-  id: string;
+export interface TrackingStep {
   title: string;
-  message: string;
-  type: 'success' | 'info' | 'error';
-  image?: string;
+  date: string;
+  completed: boolean;
+  current: boolean;
+  location: string;
+  description: string;
+}
+
+export interface OrderTrackResult {
+  orderId: string;
+  trackingNumber: string;
+  carrier: string;
+  estimatedDelivery: string;
+  statusText: string;
+  origin: string;
+  destination: string;
+  items: { title: string; image: string; quantity: number; size?: string; color?: string }[];
+  timeline: TrackingStep[];
+}
+
+export interface SavedAddress {
+  id: string;
+  label: string;
+  fullName: string;
+  street: string;
+  apartment?: string;
+  city: string;
+  provinceOrState: string;
+  postalCode: string;
+  country: string;
+  isDefault: boolean;
+}
+
+export interface CustomerOrderItem {
+  product: Product;
+  size: MerchSize;
+  color: string;
+  quantity: number;
+  priceUSD: number;
+}
+
+export interface CustomerOrderRecord {
+  id: string;
+  date: string;
+  status: 'Fulfilling' | 'In Transit' | 'Delivered';
+  trackingNumber: string;
+  carrier: string;
+  estimatedDelivery: string;
+  items: CustomerOrderItem[];
+  totalUSD: number;
+  shippingAddress: ShippingAddress;
+  receiptNumber: string;
+}
+
+export interface CustomerUser {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  tier: 'VIP Member' | 'Streetwear Insider' | 'Diamond Club';
+  loyaltyPoints: number;
+  totalOrders: number;
+  savedAddresses: SavedAddress[];
+  sizePreferences: { top: MerchSize; bottom: MerchSize; headwear?: string };
+  joinedDate: string;
 }

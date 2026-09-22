@@ -1,6 +1,6 @@
 {
-  "name": "Sanelow Label Merch Store",
-  "description": "Official online shop for Sanelow Label merchandise, heavyweight hoodies, tour tees, headwear, limited vinyl drops, and record label accessories.",
+  "name": "Sanelow Merchant Store",
+  "description": "Premium apparel and merch brand store featuring exclusive seasonal drops, heavyweight hoodies, graphic tees, outerwear, and accessories with real-time order tracking.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

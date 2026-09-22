@@ -3,28 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sanelow Label Merch Store</title>
-    <script>
-      (function() {
-        try {
-          var _origFetch = window.fetch;
-          Object.defineProperty(window, 'fetch', {
-            configurable: true,
-            enumerable: true,
-            get: function() {
-              return _origFetch;
-            },
-            set: function(val) {
-              _origFetch = val;
-            }
-          });
-        } catch (e) {
-          // ignore
-        }
-      })();
-    </script>
+    <title>Sanelow Merchant Store</title>
+    <meta name="description" content="Premium apparel and merch brand store featuring exclusive seasonal drops, heavyweight hoodies, graphic tees, outerwear, and accessories with real-time order tracking." />
+    <meta property="og:title" content="Sanelow Merchant Store" />
+    <meta property="og:description" content="Premium apparel and merch brand store featuring exclusive seasonal drops, heavyweight hoodies, graphic tees, outerwear, and accessories with real-time order tracking." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/jpeg" href="/sanelow-logo.jpg" />
+    <meta name="theme-color" content="#dc2626" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
-  <body>
+  <body class="bg-white text-black font-sans antialiased selection:bg-red-600 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
