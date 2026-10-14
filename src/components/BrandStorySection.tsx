@@ -1,5 +1,5 @@
 import React from 'react';
-import { Truck, ShieldCheck, Zap, Scissors, CheckCircle2, Award, Sparkles } from 'lucide-react';
+import { Truck, ShieldCheck, Zap, Scissors, CheckCircle2, Award, ShoppingBag } from 'lucide-react';
 
 export const BrandStorySection: React.FC = () => {
   return (
@@ -17,7 +17,7 @@ export const BrandStorySection: React.FC = () => {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                 <div className="absolute bottom-3 left-3 text-[10px] font-mono font-bold text-white uppercase tracking-wider">
-                  // 480 GSM CUSTOM-MILLED FRENCH TERRY
+                  // DIRECT MERCH CRAFTSMANSHIP
                 </div>
               </div>
               <div className="p-5 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-2">
@@ -26,7 +26,7 @@ export const BrandStorySection: React.FC = () => {
                   <span className="text-xs font-mono font-black uppercase">Tailored Boxy Silhouette</span>
                 </div>
                 <p className="text-xs text-zinc-600 leading-relaxed">
-                  Every pattern cut features reinforced ribbing, dropped shoulder contours, and shrink-resistant pre-shrunk organic cotton yarns.
+                  Every pattern cut features reinforced ribbing, dropped shoulder contours, and shrink-resistant combed cotton yarns.
                 </p>
               </div>
             </div>
@@ -35,10 +35,10 @@ export const BrandStorySection: React.FC = () => {
               <div className="p-5 rounded-2xl bg-red-50 border border-red-200 space-y-2">
                 <div className="flex items-center gap-2 text-red-700">
                   <ShieldCheck className="w-4 h-4" />
-                  <span className="text-xs font-mono font-black uppercase">Pigment & Acid Wash Lab</span>
+                  <span className="text-xs font-mono font-black uppercase">Pigment & Acid Wash Finishing</span>
                 </div>
                 <p className="text-xs text-zinc-600 leading-relaxed">
-                  Each drop piece undergoes individual garment enzyme distressing for unique patina and butter-soft hand feel that ages with wear.
+                  Curated drop pieces undergo individual garment enzyme treatments for unique patina and soft hand feel.
                 </p>
               </div>
               <div className="relative rounded-2xl overflow-hidden aspect-[4/5] bg-zinc-100 border border-zinc-200 shadow-sm">
@@ -49,7 +49,7 @@ export const BrandStorySection: React.FC = () => {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                 <div className="absolute bottom-3 left-3 text-[10px] font-mono font-bold text-white uppercase tracking-wider">
-                  // LIMITED MERCH DROP ARCHIVE
+                  // OFFICIAL MERCH DROPS
                 </div>
               </div>
             </div>
@@ -64,14 +64,14 @@ export const BrandStorySection: React.FC = () => {
 
             <div className="space-y-3">
               <h2 className="text-2xl sm:text-4xl font-black text-black leading-tight">
-                Crafted Without Compromise. Shipped Straight From The Milling Facility.
+                Crafted Without Compromise. Powered By Shopify Checkout.
               </h2>
               <p className="text-sm text-zinc-600 leading-relaxed">
-                Luxury streetwear retail inflates prices with massive showroom rent, middleman agents, and distributor licensing fees. Sanelow Merch operates directly from spinning looms to your doorstep with expedited international air tracking.
+                Direct-to-consumer streetwear apparel without retail markups or middleman distributor licensing fees. Every piece is catalogued live through our Shopify storefront and dispatched with verified tracking.
               </p>
             </div>
 
-            {/* Checklist */}
+            {/* Value checklist */}
             <div className="space-y-3.5 pt-2">
               <div className="flex items-start gap-3">
                 <div className="w-6 h-6 rounded-full bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shrink-0 mt-0.5">
@@ -79,24 +79,24 @@ export const BrandStorySection: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-black font-mono uppercase tracking-wider">
-                    Custom 450–500 GSM Heavyweight Weaves
+                    Heavyweight Structured Weaves
                   </h4>
                   <p className="text-xs text-zinc-600 mt-0.5">
-                    We mill dense French Terry cotton and combed ring-spun jerseys for structured drape and all-day thermal breathability.
+                    We source dense loopback French Terry and combed ring-spun jerseys for structured drape and everyday comfort.
                   </p>
                 </div>
               </div>
 
               <div className="flex items-start gap-3">
                 <div className="w-6 h-6 rounded-full bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shrink-0 mt-0.5">
-                  <Award className="w-4 h-4" />
+                  <ShieldCheck className="w-4 h-4" />
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-black font-mono uppercase tracking-wider">
-                    30-Day Authentic Fit Guarantee
+                    PCI-Compliant Shopify Checkout
                   </h4>
                   <p className="text-xs text-zinc-600 mt-0.5">
-                    Try your merch at home. If the drape or sizing isn't 100% ideal, swap sizes with instant prepaid courier returns.
+                    Your transactions are processed directly on Shopify's Level 1 PCI-DSS secure checkout infrastructure.
                   </p>
                 </div>
               </div>
@@ -107,28 +107,28 @@ export const BrandStorySection: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-black font-mono uppercase tracking-wider">
-                    Real-Time GPS Dispatch Tracking
+                    Official Shopify Order Tracking
                   </h4>
                   <p className="text-xs text-zinc-600 mt-0.5">
-                    Every drop order includes an encrypted tracking code and automated milestones from factory inspection to final delivery.
+                    Receive automated email and SMS dispatch notifications with courier tracking links as your order is fulfilled.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Customer stats counter */}
+            {/* Pillars */}
             <div className="pt-4 border-t border-zinc-200 grid grid-cols-3 gap-4 text-center">
               <div>
-                <div className="text-2xl font-black font-mono text-black">48,000+</div>
-                <div className="text-[11px] text-zinc-500 font-sans">Garments Delivered</div>
+                <div className="text-xl sm:text-2xl font-black font-mono text-black">ZAR</div>
+                <div className="text-[11px] text-zinc-500 font-sans">South Africa Context</div>
               </div>
               <div>
-                <div className="text-2xl font-black font-mono text-red-600">4.9 / 5.0</div>
-                <div className="text-[11px] text-zinc-500 font-sans">Verified Fabric Rating</div>
+                <div className="text-xl sm:text-2xl font-black font-mono text-red-600">100%</div>
+                <div className="text-[11px] text-zinc-500 font-sans">Official Storefront</div>
               </div>
               <div>
-                <div className="text-2xl font-black font-mono text-black">24/7</div>
-                <div className="text-[11px] text-zinc-500 font-sans">Merch Concierge</div>
+                <div className="text-xl sm:text-2xl font-black font-mono text-black">Direct</div>
+                <div className="text-[11px] text-zinc-500 font-sans">Shopify Fulfillment</div>
               </div>
             </div>
           </div>

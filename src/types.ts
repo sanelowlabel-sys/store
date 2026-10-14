@@ -13,31 +13,39 @@ export type DropCollection =
   | 'Limited Edition'
   | 'Core Essentials'
   | 'Heavyweight Fleece'
-  | 'Tour Vault';
+  | 'Tour Vault'
+  | string;
 
-export type MerchSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | '2XL' | '3XL';
+export type MerchSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | '2XL' | '3XL' | string;
 
-export type CurrencyCode = 'USD' | 'EUR' | 'GBP' | 'ZAR' | 'CAD' | 'AUD';
+export type CurrencyCode = 'ZAR' | 'USD' | 'EUR' | 'GBP' | string;
 
 export interface CurrencyConfig {
   code: CurrencyCode;
   symbol: string;
-  rateFromUSD: number;
   label: string;
+}
+
+export interface ShopifyCollection {
+  id: string;
+  title: string;
+  handle: string;
+  description: string;
+  descriptionHtml?: string;
+  image?: {
+    url: string;
+    altText?: string;
+  };
+  products?: Product[];
 }
 
 export interface Review {
   id: string;
   author: string;
-  country: string;
-  countryCode?: string;
   rating: number;
   date: string;
   comment: string;
-  verified: boolean;
-  userImage?: string;
-  sizePurchased?: string;
-  heightWeight?: string;
+  verified?: boolean;
 }
 
 export interface ProductColor {
@@ -59,128 +67,196 @@ export interface FabricSpec {
 }
 
 export interface SizingSpec {
-  size: MerchSize;
+  size: string;
   chest: string;
   length: string;
   shoulder?: string;
 }
 
+// Shopify Specific Variant Model
+export interface ShopifyVariant {
+  id: string; // gid://shopify/ProductVariant/...
+  title: string;
+  availableForSale: boolean;
+  sku?: string;
+  price: {
+    amount: string;
+    currencyCode: string;
+  };
+  compareAtPrice?: {
+    amount: string;
+    currencyCode: string;
+  } | null;
+  selectedOptions: {
+    name: string;
+    value: string;
+  }[];
+  image?: {
+    url: string;
+    altText?: string;
+  } | null;
+}
+
+export interface ShopifyOption {
+  id?: string;
+  name: string;
+  values: string[];
+}
+
+// Unified Storefront Product Model backed by Shopify
 export interface Product {
-  id: string;
+  id: string; // gid://shopify/Product/...
+  shopifyId: string;
+  handle: string;
   title: string;
   tagline: string;
   category: Category;
   dropCollection: string;
   sku: string;
+  // Real pricing from Shopify
+  priceAmount: number;
+  compareAtPriceAmount?: number;
+  currencyCode: string;
+  // Legacy / fallback numeric fields for backward compatibility
   priceUSD: number;
   compareAtPriceUSD: number;
   discountPercent: number;
+  // Real availability
+  availableForSale: boolean;
+  totalVariantsCount: number;
+  // Badge only if real supporting data
   badge?: 'LIMITED DROP' | 'PRE-ORDER' | 'BESTSELLER' | 'SOLD OUT RISK' | 'CORE ESSENTIAL' | 'ARCHIVE' | 'HOT DROP';
   isPreOrder: boolean;
   preOrderShipDate?: string;
-  stockCount: number;
-  soldCount: number;
-  rating: number;
-  reviewsCount: number;
+  // Content & attributes
   description: string;
+  descriptionHtml?: string;
   features: string[];
   fabricSpecs: FabricSpec[];
   sizingDetails: SizingSpec[];
-  sizes: MerchSize[];
+  sizes: string[];
   colors: ProductColor[];
   images: string[];
+  variants: ShopifyVariant[];
+  options: ShopifyOption[];
+  tags: string[];
   bundleDeals?: BundleDeal[];
   reviews: Review[];
-  shippingEstimate: string;
+  rating?: number;
+  reviewsCount?: number;
 }
 
+// Shopify Cart Models
+export interface ShopifyCartLine {
+  id: string; // Line item ID
+  quantity: number;
+  cost: {
+    totalAmount: {
+      amount: string;
+      currencyCode: string;
+    };
+    subtotalAmount: {
+      amount: string;
+      currencyCode: string;
+    };
+    amountPerQuantity: {
+      amount: string;
+      currencyCode: string;
+    };
+    compareAtAmountPerQuantity?: {
+      amount: string;
+      currencyCode: string;
+    } | null;
+  };
+  merchandise: {
+    id: string;
+    title: string;
+    availableForSale: boolean;
+    sku?: string;
+    selectedOptions: {
+      name: string;
+      value: string;
+    }[];
+    image?: {
+      url: string;
+      altText?: string;
+    } | null;
+    price: {
+      amount: string;
+      currencyCode: string;
+    };
+    product: {
+      id: string;
+      title: string;
+      handle: string;
+    };
+  };
+  discountAllocations: {
+    discountedAmount: {
+      amount: string;
+      currencyCode: string;
+    };
+  }[];
+}
+
+export interface ShopifyCart {
+  id: string;
+  checkoutUrl: string;
+  totalQuantity: number;
+  cost: {
+    totalAmount: {
+      amount: string;
+      currencyCode: string;
+    };
+    subtotalAmount: {
+      amount: string;
+      currencyCode: string;
+    };
+    totalTaxAmount?: {
+      amount: string;
+      currencyCode: string;
+    } | null;
+    totalDutyAmount?: {
+      amount: string;
+      currencyCode: string;
+    } | null;
+  };
+  discountCodes: {
+    code: string;
+    applicable: boolean;
+  }[];
+  lines: ShopifyCartLine[];
+}
+
+// Backward-compatible CartItem representation for UI components
 export interface CartItem {
-  id: string; // composite key: product.id + size + color.name
+  id: string; // Shopify Cart Line ID
+  variantId: string;
   product: Product;
-  selectedSize: MerchSize;
-  selectedColor: ProductColor;
+  selectedSize: string;
+  selectedColor?: ProductColor;
   quantity: number;
   appliedDiscountPercent?: number;
+  unitPriceAmount: number;
+  currencyCode: string;
 }
 
-export interface ShippingAddress {
-  fullName: string;
-  email: string;
-  phone: string;
-  street: string;
-  apartment?: string;
-  city: string;
-  provinceOrState: string;
-  postalCode: string;
-  country: string;
-  shippingMethod: 'standard_tracked' | 'express_courier' | 'vip_insured';
-  paymentMethod: 'card' | 'paypal' | 'apple_pay' | 'instant_eft';
-}
-
-export interface TrackingStep {
+// Local Wishlist Item
+export interface WishlistItem {
+  productId: string;
+  handle: string;
   title: string;
-  date: string;
-  completed: boolean;
-  current: boolean;
-  location: string;
-  description: string;
+  priceAmount: number;
+  currencyCode: string;
+  image: string;
+  addedAt: number;
 }
 
-export interface OrderTrackResult {
-  orderId: string;
-  trackingNumber: string;
-  carrier: string;
-  estimatedDelivery: string;
-  statusText: string;
-  origin: string;
-  destination: string;
-  items: { title: string; image: string; quantity: number; size?: string; color?: string }[];
-  timeline: TrackingStep[];
-}
-
-export interface SavedAddress {
-  id: string;
-  label: string;
-  fullName: string;
-  street: string;
-  apartment?: string;
-  city: string;
-  provinceOrState: string;
-  postalCode: string;
-  country: string;
-  isDefault: boolean;
-}
-
-export interface CustomerOrderItem {
-  product: Product;
-  size: MerchSize;
-  color: string;
-  quantity: number;
-  priceUSD: number;
-}
-
-export interface CustomerOrderRecord {
-  id: string;
-  date: string;
-  status: 'Fulfilling' | 'In Transit' | 'Delivered';
-  trackingNumber: string;
-  carrier: string;
-  estimatedDelivery: string;
-  items: CustomerOrderItem[];
-  totalUSD: number;
-  shippingAddress: ShippingAddress;
-  receiptNumber: string;
-}
-
-export interface CustomerUser {
-  id: string;
-  name: string;
-  email: string;
-  avatarUrl?: string;
-  tier: 'VIP Member' | 'Streetwear Insider' | 'Diamond Club';
-  loyaltyPoints: number;
-  totalOrders: number;
-  savedAddresses: SavedAddress[];
-  sizePreferences: { top: MerchSize; bottom: MerchSize; headwear?: string };
-  joinedDate: string;
+// Connection Status
+export interface ShopifyStoreConfig {
+  domain: string;
+  countryCode: string;
+  currencyCode: string;
+  isConfigured: boolean;
+  errorMessage?: string;
 }

@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { ProductCard } from './components/ProductCard';
 import { ProductModal } from './components/ProductModal';
+import { ProductPage } from './components/ProductPage';
+import { CollectionPage } from './components/CollectionPage';
 import { CartDrawer } from './components/CartDrawer';
 import { CheckoutModal } from './components/CheckoutModal';
 import { WishlistDrawer } from './components/WishlistDrawer';
@@ -12,77 +14,94 @@ import { FaqModal } from './components/FaqModal';
 import { TrackOrderModal } from './components/TrackOrderModal';
 import { CustomerPortalModal } from './components/CustomerPortalModal';
 import { MerchLoader } from './components/MerchLoader';
+import { ShopifySetupBanner } from './components/ShopifySetupBanner';
 
-import {
-  PRODUCTS,
-  DEMO_CUSTOMER_USER,
-  DEMO_CUSTOMER_ORDERS,
-} from './data/products';
 import {
   Product,
   Category,
-  CurrencyCode,
-  CartItem,
-  ProductColor,
-  MerchSize,
-  CustomerUser,
-  CustomerOrderRecord,
+  ShopifyCart,
+  ShopifyVariant,
+  ShopifyCollection,
 } from './types';
-import { Sparkles, Filter, ChevronDown, Check, Flame, Zap, Package, ShoppingBag, Layers, Scissors } from 'lucide-react';
+import {
+  fetchLiveCatalogue,
+  fetchProductByHandle,
+  fetchCollectionByHandle,
+  getOrCreateShopifyCart,
+  addLinesToCart,
+  updateLineInCart,
+  removeLineFromCart,
+  applyDiscountToCart,
+  SHOPIFY_STORE_DOMAIN,
+  DEFAULT_CURRENCY,
+} from './lib/shopify';
+
+import {
+  Filter,
+  ChevronDown,
+  Flame,
+  Scissors,
+  RefreshCw,
+  ShoppingBag,
+  ArrowLeft,
+} from 'lucide-react';
+
+interface RouteState {
+  view: 'home' | 'product' | 'collection';
+  handle?: string;
+}
+
+function parseUrlRoute(): RouteState {
+  if (typeof window === 'undefined') return { view: 'home' };
+  const pathname = window.location.pathname;
+  const prodMatch = pathname.match(/^\/products\/([a-zA-Z0-9_\-]+)/);
+  if (prodMatch) return { view: 'product', handle: prodMatch[1] };
+  const colMatch = pathname.match(/^\/collections\/([a-zA-Z0-9_\-]+)/);
+  if (colMatch) return { view: 'collection', handle: colMatch[1] };
+  return { view: 'home' };
+}
 
 export default function App() {
   // App initialization loader
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
-  // Navigation & filtering state
-  const [currentCategory, setCurrentCategory] = useState<Category>('all');
-  const [currency, setCurrency] = useState<CurrencyCode>('USD');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortOption, setSortOption] = useState<'featured' | 'price-asc' | 'price-desc' | 'rating' | 'discount'>('featured');
-  const [onlyDrop26, setOnlyDrop26] = useState(false);
-  const [onlyHeavyweight, setOnlyHeavyweight] = useState(false);
-  const [onlyInStock, setOnlyInStock] = useState(false);
-  const [onlyUnder60, setOnlyUnder60] = useState(false);
+  // Routing State
+  const [route, setRoute] = useState<RouteState>(parseUrlRoute);
+  const [activeProductPage, setActiveProductPage] = useState<Product | null>(null);
+  const [activeCollectionPage, setActiveCollectionPage] = useState<ShopifyCollection | null>(null);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageNotFound, setPageNotFound] = useState(false);
 
-  // Modals & Drawers state
+  // Live Shopify Storefront State
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isConfigured, setIsConfigured] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [isRefreshingCatalog, setIsRefreshingCatalog] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+
+  // Shopify Cart State
+  const [shopifyCart, setShopifyCart] = useState<ShopifyCart | null>(null);
+  const [isCartLoading, setIsCartLoading] = useState(false);
+
+  // Navigation & Filtering State
+  const [currentCategory, setCurrentCategory] = useState<Category>('all');
+  const [currency, setCurrency] = useState<string>(DEFAULT_CURRENCY);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState<'featured' | 'price-asc' | 'price-desc' | 'title'>('featured');
+  const [onlyDrop26, setOnlyDrop26] = useState(false);
+  const [onlyUnderThreshold, setOnlyUnderThreshold] = useState(false); // Under R1,000
+  const [onlyInStock, setOnlyInStock] = useState(false);
+
+  // Modals & Drawers State
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isFaqOpen, setIsFaqOpen] = useState(false);
   const [isTrackOrderOpen, setIsTrackOrderOpen] = useState(false);
-  const [selectedTrackOrderId, setSelectedTrackOrderId] = useState<string>('SNLW-8492');
   const [isCustomerPortalOpen, setIsCustomerPortalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
-  // Customer Account state
-  const [currentUser, setCurrentUser] = useState<CustomerUser | null>(() => {
-    try {
-      const saved = localStorage.getItem('sanelow_user');
-      return saved ? JSON.parse(saved) : DEMO_CUSTOMER_USER;
-    } catch {
-      return DEMO_CUSTOMER_USER;
-    }
-  });
-
-  const [customerOrders, setCustomerOrders] = useState<CustomerOrderRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem('sanelow_orders');
-      return saved ? JSON.parse(saved) : DEMO_CUSTOMER_ORDERS;
-    } catch {
-      return DEMO_CUSTOMER_ORDERS;
-    }
-  });
-
-  // Cart & Wishlist persistence
-  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('sanelow_merch_cart');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
+  // Browser-Local Wishlist
   const [wishlist, setWishlist] = useState<Product[]>(() => {
     try {
       const saved = localStorage.getItem('sanelow_merch_wishlist');
@@ -92,145 +111,276 @@ export default function App() {
     }
   });
 
-  const [activeCheckoutPromo, setActiveCheckoutPromo] = useState<{ code?: string; discountPercent?: number }>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
   const catalogRef = useRef<HTMLDivElement>(null);
-
-  // Initial loader effect (runs once briefly for smooth feel)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsInitialLoading(false);
-    }, 550);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Sync with local storage
-  useEffect(() => {
-    try {
-      localStorage.setItem('sanelow_merch_cart', JSON.stringify(cartItems));
-    } catch {
-      // ignore
-    }
-  }, [cartItems]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('sanelow_merch_wishlist', JSON.stringify(wishlist));
-    } catch {
-      // ignore
-    }
-  }, [wishlist]);
-
-  useEffect(() => {
-    try {
-      if (currentUser) {
-        localStorage.setItem('sanelow_user', JSON.stringify(currentUser));
-      } else {
-        localStorage.removeItem('sanelow_user');
-      }
-    } catch {
-      // ignore
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('sanelow_orders', JSON.stringify(customerOrders));
-    } catch {
-      // ignore
-    }
-  }, [customerOrders]);
+  const lastFetchTimeRef = useRef<number>(0);
+  const backoffDelayRef = useRef<number>(60000); // 60s base
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((prev) => (prev === msg ? null : prev));
-    }, 2800);
+    }, 3200);
   };
 
-  // Cart Actions
-  const handleAddToCart = (
-    product: Product,
-    size?: MerchSize,
-    color?: ProductColor,
-    quantity = 1,
-    appliedDiscountPercent = 0
-  ) => {
-    const chosenSize = size || (product.sizes.length > 0 ? product.sizes[0] : 'M');
-    const compositeId = `${product.id}-${chosenSize}-${color?.name || 'default'}-${appliedDiscountPercent}`;
+  // URL Navigation helper
+  const navigateTo = useCallback((path: string) => {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
+    setRoute(parseUrlRoute());
+  }, []);
 
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.id === compositeId);
-      if (existing) {
-        return prev.map((item) =>
-          item.id === compositeId
-            ? { ...item, quantity: Math.min(product.stockCount, item.quantity + quantity) }
-            : item
-        );
+  // Listen to browser popstate (back / forward)
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoute(parseUrlRoute());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // 1. Fetch live catalogue from Shopify
+  const loadLiveProducts = useCallback(async (isBackground = false) => {
+    if (!isBackground) {
+      setIsRefreshingCatalog(true);
+    }
+
+    try {
+      const result = await fetchLiveCatalogue();
+      lastFetchTimeRef.current = Date.now();
+
+      if (!result.configured) {
+        setIsConfigured(false);
+        setCatalogError(result.errorMessage || 'Shopify Storefront Token is not configured');
+        setProducts([]);
+      } else if (result.errorMessage) {
+        setCatalogError(result.errorMessage);
+        backoffDelayRef.current = Math.min(300000, backoffDelayRef.current * 1.5);
+      } else {
+        setIsConfigured(true);
+        setCatalogError(null);
+        setProducts(result.products);
+        setLastSyncedAt(new Date());
+        backoffDelayRef.current = 60000;
       }
-      return [
-        ...prev,
-        {
-          id: compositeId,
-          product,
-          selectedSize: chosenSize,
-          selectedColor: color,
-          quantity,
-          appliedDiscountPercent,
-        },
-      ];
-    });
+    } catch (err: any) {
+      setCatalogError(err?.message || 'Error connecting to Shopify catalogue');
+    } finally {
+      setIsRefreshingCatalog(false);
+      setIsInitialLoading(false);
+    }
+  }, []);
 
-    showToast(`Added "${product.title}" (${chosenSize}) to your bag`);
-  };
+  // 2. Fetch or initialize Shopify Cart
+  const loadCart = useCallback(async () => {
+    setIsCartLoading(true);
+    try {
+      const cart = await getOrCreateShopifyCart();
+      if (cart) {
+        setShopifyCart(cart);
+      }
+    } catch {
+      // Graceful fallback
+    } finally {
+      setIsCartLoading(false);
+    }
+  }, []);
 
-  const handleUpdateCartQuantity = (compositeId: string, qty: number) => {
-    setCartItems((prev) =>
-      prev.map((item) => (item.id === compositeId ? { ...item, quantity: qty } : item))
-    );
-  };
+  // Handle route change and load specific page data
+  useEffect(() => {
+    if (route.view === 'product' && route.handle) {
+      const matchingLocal = products.find((p) => p.handle === route.handle);
+      if (matchingLocal) {
+        setActiveProductPage(matchingLocal);
+        setPageNotFound(false);
+        document.title = `${matchingLocal.title} | Sanelow Merchant Store`;
+      } else {
+        setPageLoading(true);
+        fetchProductByHandle(route.handle).then((res) => {
+          setPageLoading(false);
+          if (res.product) {
+            setActiveProductPage(res.product);
+            setPageNotFound(false);
+            document.title = `${res.product.title} | Sanelow Merchant Store`;
+          } else {
+            setActiveProductPage(null);
+            setPageNotFound(true);
+            document.title = 'Piece Not Found | Sanelow Merchant Store';
+          }
+        });
+      }
+    } else if (route.view === 'collection' && route.handle) {
+      setPageLoading(true);
+      fetchCollectionByHandle(route.handle).then((res) => {
+        setPageLoading(false);
+        if (res.collection) {
+          setActiveCollectionPage(res.collection);
+          setPageNotFound(false);
+          document.title = `${res.collection.title} | Sanelow Merchant Store`;
+        } else {
+          setActiveCollectionPage(null);
+          setPageNotFound(true);
+          document.title = 'Collection Not Found | Sanelow Merchant Store';
+        }
+      });
+    } else {
+      setActiveProductPage(null);
+      setActiveCollectionPage(null);
+      setPageNotFound(false);
+      document.title = 'Sanelow Merchant Store | Official Streetwear & Merch';
+    }
+  }, [route, products]);
 
-  const handleRemoveFromCart = (compositeId: string) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== compositeId));
-  };
+  // Initial load
+  useEffect(() => {
+    loadLiveProducts();
+    loadCart();
+  }, [loadLiveProducts, loadCart]);
 
-  const handleOrderSuccess = (orderId: string, trackingNumber: string) => {
-    // Record new customer order in history
-    const newOrder: CustomerOrderRecord = {
-      id: orderId,
-      date: 'Just Now',
-      status: 'Fulfilling',
-      trackingNumber,
-      carrier: 'DHL Express Global Logistics',
-      estimatedDelivery: 'In 3 - 5 business days',
-      receiptNumber: `RCPT-${Math.floor(100000 + Math.random() * 900000)}`,
-      totalUSD: cartItems.reduce((sum, item) => sum + item.product.priceUSD * item.quantity, 0),
-      shippingAddress: {
-        fullName: currentUser?.name || 'Valued Customer',
-        email: currentUser?.email || 'meandmusicdistributors@gmail.com',
-        phone: '+1 (555) 234-8901',
-        street: '742 Evergreen Terrace',
-        city: 'Springfield',
-        provinceOrState: 'OR',
-        postalCode: '97477',
-        country: 'United States',
-        shippingMethod: 'standard_tracked',
-        paymentMethod: 'card',
-      },
-      items: cartItems.map((item) => ({
-        product: item.product,
-        size: item.selectedSize || 'M',
-        color: item.selectedColor?.name || 'Default Color',
-        quantity: item.quantity,
-        priceUSD: item.product.priceUSD,
-      })),
+  // Periodic Refresh: Refresh every ~60s while page is visible
+  useEffect(() => {
+    let timerId: NodeJS.Timeout;
+
+    const scheduleRefresh = () => {
+      timerId = setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await loadLiveProducts(true);
+        }
+        scheduleRefresh();
+      }, backoffDelayRef.current);
     };
 
-    setCustomerOrders((prev) => [newOrder, ...prev]);
-    setCartItems([]);
-    setSelectedTrackOrderId(orderId);
-    showToast(`Drop order ${orderId} secured! Live tracking code issued.`);
+    scheduleRefresh();
+    return () => clearTimeout(timerId);
+  }, [loadLiveProducts]);
+
+  // Tab visibility & focus change: re-fetch if tab becomes active and stale (>15s)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const timeSinceLastFetch = Date.now() - lastFetchTimeRef.current;
+        if (timeSinceLastFetch > 15000) {
+          loadLiveProducts(true);
+        }
+      }
+    };
+
+    const handleFocus = () => {
+      const timeSinceLastFetch = Date.now() - lastFetchTimeRef.current;
+      if (timeSinceLastFetch > 25000) {
+        loadLiveProducts(true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [loadLiveProducts]);
+
+  // Save wishlist to local storage
+  useEffect(() => {
+    try {
+      localStorage.setItem('sanelow_merch_wishlist', JSON.stringify(wishlist));
+    } catch {
+      // Ignore
+    }
+  }, [wishlist]);
+
+  // Shopify Cart Operations
+  const handleAddToCart = async (
+    product: Product,
+    variant: ShopifyVariant,
+    quantity: number = 1
+  ) => {
+    setIsCartLoading(true);
+    try {
+      let currentCart = shopifyCart;
+      if (!currentCart) {
+        currentCart = await getOrCreateShopifyCart();
+      }
+
+      if (!currentCart) {
+        showToast('Unable to initialize cart. Please check your connection.');
+        return;
+      }
+
+      const { cart, userErrors } = await addLinesToCart(currentCart.id, [
+        { merchandiseId: variant.id, quantity },
+      ]);
+
+      if (userErrors && userErrors.length > 0) {
+        showToast(userErrors[0].message || 'Could not add variant to bag');
+      } else if (cart) {
+        setShopifyCart(cart);
+        showToast(`Added ${quantity}x "${product.title}" (${variant.title}) to your bag`);
+      }
+    } catch {
+      showToast('Error communicating with Shopify Cart');
+    } finally {
+      setIsCartLoading(false);
+    }
+  };
+
+  const handleUpdateCartQuantity = async (lineId: string, quantity: number) => {
+    if (!shopifyCart) return;
+    setIsCartLoading(true);
+    try {
+      if (quantity <= 0) {
+        const { cart } = await removeLineFromCart(shopifyCart.id, lineId);
+        if (cart) setShopifyCart(cart);
+      } else {
+        const { cart } = await updateLineInCart(shopifyCart.id, lineId, quantity);
+        if (cart) setShopifyCart(cart);
+      }
+    } catch {
+      showToast('Error updating item in bag');
+    } finally {
+      setIsCartLoading(false);
+    }
+  };
+
+  const handleRemoveFromCart = async (lineId: string) => {
+    if (!shopifyCart) return;
+    setIsCartLoading(true);
+    try {
+      const { cart } = await removeLineFromCart(shopifyCart.id, lineId);
+      if (cart) {
+        setShopifyCart(cart);
+        showToast('Item removed from bag');
+      }
+    } catch {
+      showToast('Error removing item from bag');
+    } finally {
+      setIsCartLoading(false);
+    }
+  };
+
+  const handleApplyDiscount = async (code: string): Promise<{ success: boolean; message?: string }> => {
+    if (!shopifyCart) return { success: false, message: 'Cart not initialized' };
+    try {
+      const { cart, userErrors } = await applyDiscountToCart(shopifyCart.id, [code]);
+      if (userErrors && userErrors.length > 0) {
+        return { success: false, message: userErrors[0].message };
+      }
+      if (cart) {
+        setShopifyCart(cart);
+        const applied = cart.discountCodes.some((d) => d.code.toUpperCase() === code.toUpperCase() && d.applicable);
+        if (applied) {
+          showToast(`Shopify discount ${code} applied successfully!`);
+          return { success: true };
+        } else {
+          return { success: false, message: 'Code is not valid for items in your cart.' };
+        }
+      }
+      return { success: false, message: 'Could not apply code' };
+    } catch {
+      return { success: false, message: 'Error checking code with Shopify' };
+    }
   };
 
   // Wishlist Actions
@@ -241,90 +391,104 @@ export default function App() {
         showToast(`Removed from saved merch`);
         return prev.filter((p) => p.id !== product.id);
       } else {
-        showToast(`Saved "${product.title}" to drop wishlist`);
+        showToast(`Saved "${product.title}" locally on this device`);
         return [...prev, product];
       }
     });
   };
 
-  // Filtered and Sorted Products
-  const filteredProducts = useMemo(() => {
-    return PRODUCTS.filter((p) => {
-      // Category filter
-      if (currentCategory !== 'all' && p.category !== currentCategory) {
-        return false;
-      }
-      // Search query
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const matchesTitle = p.title.toLowerCase().includes(query);
-        const matchesTagline = p.tagline.toLowerCase().includes(query);
-        const matchesDesc = p.description.toLowerCase().includes(query);
-        const matchesSku = p.sku.toLowerCase().includes(query);
-        const matchesCollection = p.dropCollection?.toLowerCase().includes(query) || false;
-        const matchesFeatures = p.features.some((f) => f.toLowerCase().includes(query));
-        if (!matchesTitle && !matchesTagline && !matchesDesc && !matchesSku && !matchesCollection && !matchesFeatures) {
-          return false;
-        }
-      }
-      // Only Summer '26 Drop
-      if (onlyDrop26 && !p.dropCollection?.toLowerCase().includes('26')) {
-        return false;
-      }
-      // Heavyweight (450+ GSM)
-      if (onlyHeavyweight) {
-        const isHeavy = p.fabricSpecs.some((s) => s.value.includes('450') || s.value.includes('500') || s.value.includes('Heavyweight'));
-        if (!isHeavy) return false;
-      }
-      // In stock
-      if (onlyInStock && p.stockCount <= 0) {
-        return false;
-      }
-      // Under $60
-      if (onlyUnder60 && p.priceUSD >= 60) {
-        return false;
-      }
-      return true;
-    }).sort((a, b) => {
-      if (sortOption === 'price-asc') return a.priceUSD - b.priceUSD;
-      if (sortOption === 'price-desc') return b.priceUSD - a.priceUSD;
-      if (sortOption === 'rating') return b.rating - a.rating;
-      if (sortOption === 'discount') return b.discountPercent - a.discountPercent;
-      // Featured: Limited drop and high ratings first
-      const aScore = (a.badge === 'LIMITED DROP' ? 3 : a.badge === 'BESTSELLER' ? 2 : 1) * 10 + a.rating;
-      const bScore = (b.badge === 'LIMITED DROP' ? 3 : b.badge === 'BESTSELLER' ? 2 : 1) * 10 + b.rating;
-      return bScore - aScore;
-    });
-  }, [currentCategory, searchQuery, onlyDrop26, onlyHeavyweight, onlyInStock, onlyUnder60, sortOption]);
-
-  const featuredProduct = PRODUCTS[0];
-
-  const scrollToCatalog = () => {
-    catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   const isProductInWishlist = (id: string) => wishlist.some((p) => p.id === id);
 
-  // Cart total in USD for Navbar display
-  const cartTotalUSD = cartItems.reduce((acc, item) => {
-    const unitPrice = item.appliedDiscountPercent
-      ? item.product.priceUSD * (1 - item.appliedDiscountPercent / 100)
-      : item.product.priceUSD;
-    return acc + unitPrice * item.quantity;
-  }, 0);
+  // Filtered & Sorted Products
+  const filteredProducts = useMemo(() => {
+    return products
+      .filter((p) => {
+        // Category filter
+        if (currentCategory !== 'all' && p.category !== currentCategory) {
+          return false;
+        }
+        // Search query
+        if (searchQuery.trim()) {
+          const query = searchQuery.toLowerCase();
+          const matchesTitle = p.title.toLowerCase().includes(query);
+          const matchesTagline = p.tagline.toLowerCase().includes(query);
+          const matchesDesc = p.description.toLowerCase().includes(query);
+          const matchesSku = p.sku.toLowerCase().includes(query);
+          const matchesTags = p.tags.some((t) => t.toLowerCase().includes(query));
+          if (!matchesTitle && !matchesTagline && !matchesDesc && !matchesSku && !matchesTags) {
+            return false;
+          }
+        }
+        // Summer '26 Drop filter
+        if (onlyDrop26) {
+          const hasDropTag =
+            p.tags.some((t) => t.toLowerCase().includes('26') || t.toLowerCase().includes('drop')) ||
+            p.dropCollection.toLowerCase().includes('26') ||
+            p.title.toLowerCase().includes('26');
+          if (!hasDropTag) return false;
+        }
+        // Under R1,000 threshold filter (ZAR adapted)
+        if (onlyUnderThreshold) {
+          const threshold = currency === 'ZAR' ? 1000 : 60;
+          if (p.priceAmount >= threshold) return false;
+        }
+        // In stock
+        if (onlyInStock && !p.availableForSale) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortOption === 'price-asc') return a.priceAmount - b.priceAmount;
+        if (sortOption === 'price-desc') return b.priceAmount - a.priceAmount;
+        if (sortOption === 'title') return a.title.localeCompare(b.title);
+        // Featured
+        const aScore = (a.badge ? 2 : 1) * 10 + (a.availableForSale ? 5 : 0);
+        const bScore = (b.badge ? 2 : 1) * 10 + (b.availableForSale ? 5 : 0);
+        return bScore - aScore;
+      });
+  }, [products, currentCategory, searchQuery, onlyDrop26, onlyUnderThreshold, onlyInStock, sortOption, currency]);
+
+  const featuredProduct = products.length > 0 ? products[0] : null;
+
+  const scrollToCatalog = () => {
+    if (route.view !== 'home') {
+      navigateTo('/');
+      setTimeout(() => {
+        catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } else {
+      catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const cartTotalAmount = shopifyCart?.cost?.totalAmount?.amount
+    ? parseFloat(shopifyCart.cost.totalAmount.amount)
+    : 0;
+
+  const cartTotalQuantity = shopifyCart?.totalQuantity || 0;
 
   return (
     <div className="min-h-screen bg-white text-black flex flex-col font-['Plus_Jakarta_Sans',sans-serif] selection:bg-red-600 selection:text-white">
-      {/* Optional brief initial brand loader */}
+      {/* Initial load feel */}
       {isInitialLoading && (
         <MerchLoader
-          message="SANELOW MERCH ARCHIVE"
-          submessage="Initializing Summer '26 Inventory & Fabric Specs..."
+          message="SANELOW STOREFRONT"
+          submessage={`Connecting to ${SHOPIFY_STORE_DOMAIN} Storefront API...`}
           fullscreen={true}
         />
       )}
 
-      {/* Toast alert */}
+      {/* Shopify Setup / Connection Status Banner */}
+      <ShopifySetupBanner
+        storeDomain={SHOPIFY_STORE_DOMAIN}
+        isConfigured={isConfigured}
+        errorMessage={catalogError || undefined}
+        onRetry={() => loadLiveProducts(false)}
+        isRefreshing={isRefreshingCatalog}
+      />
+
+      {/* Toast Alert */}
       {toastMessage && (
         <div className="fixed bottom-6 right-4 z-50 px-4 py-3 rounded-2xl bg-black text-white text-xs font-mono shadow-2xl flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-3 border border-red-600">
           <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
@@ -332,227 +496,350 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Navigation (Pure White Background, Red Accents, No text beside logo) */}
+      {/* Main Navigation */}
       <Navbar
         currentCategory={currentCategory}
         onSelectCategory={(cat) => {
           setCurrentCategory(cat);
-          scrollToCatalog();
+          if (route.view !== 'home') {
+            navigateTo('/');
+          } else {
+            scrollToCatalog();
+          }
         }}
         currency={currency}
         onSelectCurrency={setCurrency}
-        cartCount={cartItems.reduce((acc, item) => acc + item.quantity, 0)}
-        cartTotalUSD={cartTotalUSD}
+        cartCount={cartTotalQuantity}
+        cartTotalAmount={cartTotalAmount}
         wishlistCount={wishlist.length}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenWishlist={() => setIsWishlistOpen(true)}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomerPortal={() => setIsCustomerPortalOpen(true)}
-        currentUser={currentUser}
         searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={(q) => {
+          setSearchQuery(q);
+          if (route.view !== 'home') navigateTo('/');
+        }}
       />
 
-      {/* Hero Banner (Summer '26 Drop & Apparel Focus) */}
-      <HeroBanner
-        featuredProduct={featuredProduct}
-        currency={currency}
-        onQuickView={setSelectedProduct}
-        onScrollToCatalog={scrollToCatalog}
-        onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
-      />
-
-      {/* Product Catalog Section */}
-      <main ref={catalogRef} className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 w-full">
-        {/* Catalog Header & Controls Bar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-200">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-red-600 font-black uppercase tracking-wider">
-              <Scissors className="w-3.5 h-3.5" />
-              <span>CUSTOM MILLED APPAREL & MERCH ARCHIVE</span>
+      {/* ROUTE 1: Dedicated Product Detail Page (/products/{handle}) */}
+      {route.view === 'product' && (
+        <main className="flex-1 w-full">
+          {pageLoading ? (
+            <div className="py-24 text-center">
+              <MerchLoader message="LOADING PIECE" submessage="Fetching real-time Shopify variant details..." />
             </div>
-            <h2 className="text-2xl sm:text-3xl font-black text-black mt-1">
-              {currentCategory === 'all'
-                ? 'Complete Merch Archive'
-                : currentCategory === 'hoodies-fleece'
-                ? 'Heavyweight Hoodies & Loopback Fleece'
-                : currentCategory === 'graphic-tees'
-                ? 'Custom Washed Graphic Tees'
-                : currentCategory === 'outerwear'
-                ? 'Structured Jackets & Layering Outerwear'
-                : currentCategory === 'headwear'
-                ? 'Embroidered Snapbacks & Wool Beanies'
-                : currentCategory === 'bottoms'
-                ? 'Raw-Edge French Terry Sweats & Shorts'
-                : 'Merchandise Accessories & Bags'}
-            </h2>
-            <p className="text-xs text-zinc-500 mt-1 font-mono">
-              Showing {filteredProducts.length} curated apparel pieces with verified fabric GSM & international air tracking
-            </p>
-          </div>
-
-          {/* Filters & Sorting */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Quick toggles */}
-            <button
-              type="button"
-              onClick={() => setOnlyDrop26(!onlyDrop26)}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer flex items-center gap-1.5 ${
-                onlyDrop26
-                  ? 'bg-red-50 border-red-600 text-red-600 font-black'
-                  : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
-              }`}
-            >
-              <Flame className="w-3.5 h-3.5" />
-              <span>Summer '26 Drop</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOnlyHeavyweight(!onlyHeavyweight)}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer flex items-center gap-1.5 ${
-                onlyHeavyweight
-                  ? 'bg-red-50 border-red-600 text-red-600 font-black'
-                  : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>450+ GSM Only</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOnlyUnder60(!onlyUnder60)}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer ${
-                onlyUnder60
-                  ? 'bg-red-50 border-red-600 text-red-600 font-black'
-                  : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
-              }`}
-            >
-              Under $60
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOnlyInStock(!onlyInStock)}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer ${
-                onlyInStock
-                  ? 'bg-red-50 border-red-600 text-red-600 font-black'
-                  : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
-              }`}
-            >
-              In Stock
-            </button>
-
-            {/* Sort Dropdown */}
-            <div className="relative">
-              <select
-                id="sort-select-dropdown"
-                value={sortOption}
-                onChange={(e) => setSortOption(e.target.value as unknown as typeof sortOption)}
-                className="appearance-none pl-3 pr-8 py-1.5 rounded-xl bg-white border border-zinc-200 text-xs font-mono text-black focus:outline-none focus:border-red-600 cursor-pointer"
+          ) : pageNotFound || !activeProductPage ? (
+            <div className="py-24 text-center max-w-md mx-auto space-y-4 px-4">
+              <span className="px-3 py-1 bg-red-100 text-red-600 font-mono text-xs font-bold rounded-full">HTTP 404</span>
+              <h1 className="text-2xl font-black">Piece Not Found</h1>
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                The product requested is not currently active in the Sanelow catalogue.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigateTo('/')}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-zinc-800 transition-colors cursor-pointer"
               >
-                <option value="featured">Sort: Most Popular</option>
-                <option value="rating">Top Customer Rated</option>
-                <option value="discount">Biggest Savings (%)</option>
-                <option value="price-asc">Price: Low to High</option>
-                <option value="price-desc">Price: High to Low</option>
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+                <ArrowLeft className="w-4 h-4" />
+                <span>Return to Catalogue</span>
+              </button>
             </div>
-          </div>
-        </div>
+          ) : (
+            <ProductPage
+              product={activeProductPage}
+              currency={currency}
+              isWishlisted={isProductInWishlist(activeProductPage.id)}
+              onToggleWishlist={handleToggleWishlist}
+              onAddToCart={handleAddToCart}
+              onBackToCatalogue={() => navigateTo('/')}
+            />
+          )}
+        </main>
+      )}
 
-        {/* Product Grid */}
-        {filteredProducts.length === 0 ? (
-          <div className="py-20 text-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-zinc-50 border border-zinc-200 flex items-center justify-center mx-auto text-zinc-400">
-              <Filter className="w-8 h-8" />
+      {/* ROUTE 2: Dedicated Collection Page (/collections/{handle}) */}
+      {route.view === 'collection' && (
+        <main className="flex-1 w-full">
+          {pageLoading ? (
+            <div className="py-24 text-center">
+              <MerchLoader message="LOADING COLLECTION" submessage="Retrieving Shopify collection catalogue..." />
             </div>
-            <h3 className="text-lg font-black text-black">
-              No merch drops found matching your filter
-            </h3>
-            <p className="text-xs text-zinc-500 max-w-sm mx-auto leading-relaxed">
-              Try resetting filters or searching for "hoodie", "tee", "acid wash", or "cap" to browse our collection.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setCurrentCategory('all');
-                setOnlyDrop26(false);
-                setOnlyHeavyweight(false);
-                setOnlyInStock(false);
-                setOnlyUnder60(false);
-              }}
-              className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
-            >
-              Reset All Filters
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-8">
-            {filteredProducts.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                currency={currency}
-                isWishlisted={isProductInWishlist(product.id)}
-                onToggleWishlist={handleToggleWishlist}
-                onQuickView={setSelectedProduct}
-                onAddToCart={(prod, size, color) => handleAddToCart(prod, size, color, 1, 0)}
-              />
-            ))}
-          </div>
-        )}
-      </main>
+          ) : pageNotFound || !activeCollectionPage ? (
+            <div className="py-24 text-center max-w-md mx-auto space-y-4 px-4">
+              <span className="px-3 py-1 bg-red-100 text-red-600 font-mono text-xs font-bold rounded-full">HTTP 404</span>
+              <h1 className="text-2xl font-black">Collection Not Found</h1>
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                The collection requested does not exist or has been archived.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigateTo('/')}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Return to Catalogue</span>
+              </button>
+            </div>
+          ) : (
+            <CollectionPage
+              collection={activeCollectionPage}
+              currency={currency}
+              isWishlisted={isProductInWishlist}
+              onToggleWishlist={handleToggleWishlist}
+              onQuickView={(p) => navigateTo(`/products/${p.handle}`)}
+              onAddToCart={(prod, variant) => handleAddToCart(prod, variant, 1)}
+              onBackToHome={() => navigateTo('/')}
+            />
+          )}
+        </main>
+      )}
 
-      {/* Brand Craft & Milling Advantage Section */}
-      <BrandStorySection />
+      {/* ROUTE 3: Homepage Catalogue */}
+      {route.view === 'home' && (
+        <>
+          {/* Hero Banner */}
+          <HeroBanner
+            featuredProduct={featuredProduct}
+            currency={currency}
+            onQuickView={(p) => navigateTo(`/products/${p.handle}`)}
+            onScrollToCatalog={scrollToCatalog}
+            onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
+          />
 
-      {/* Footer (Pure White, Red Accents, Support email & Customer Portal link) */}
+          {/* Product Catalog Section */}
+          <main ref={catalogRef} className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 w-full">
+            {/* Catalog Header & Controls Bar */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-200">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-mono text-red-600 font-black uppercase tracking-wider">
+                  <Scissors className="w-3.5 h-3.5" />
+                  <span>LIVE SHOPIFY STOREFRONT CATALOGUE</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-black text-black mt-1">
+                  {currentCategory === 'all'
+                    ? 'Curated Merch Collection'
+                    : currentCategory === 'hoodies-fleece'
+                    ? 'Heavyweight Hoodies & Fleece'
+                    : currentCategory === 'graphic-tees'
+                    ? 'Graphic Tees & Tops'
+                    : currentCategory === 'outerwear'
+                    ? 'Jackets & Outerwear'
+                    : currentCategory === 'headwear'
+                    ? 'Caps & Headwear'
+                    : currentCategory === 'bottoms'
+                    ? 'Bottoms & Shorts'
+                    : 'Accessories & Bags'}
+                </h2>
+                <div className="flex items-center gap-3 text-xs text-zinc-500 mt-1 font-mono">
+                  <span>
+                    Showing {filteredProducts.length} {filteredProducts.length === 1 ? 'piece' : 'pieces'}
+                  </span>
+                  <span>•</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${isConfigured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    <span>
+                      {isConfigured
+                        ? lastSyncedAt
+                          ? `Refreshed ${lastSyncedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                          : 'Live sync active'
+                        : 'Setup required'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => loadLiveProducts(false)}
+                    disabled={isRefreshingCatalog}
+                    className="text-zinc-500 hover:text-black flex items-center gap-1 transition-colors cursor-pointer"
+                    title="Refresh Shopify catalogue"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isRefreshingCatalog ? 'animate-spin text-red-600' : ''}`} />
+                    <span className="underline">Sync</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Filters & Sorting */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setOnlyDrop26(!onlyDrop26)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer flex items-center gap-1.5 ${
+                    onlyDrop26
+                      ? 'bg-red-50 border-red-600 text-red-600 font-black'
+                      : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5" />
+                  <span>Drop Collection</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOnlyUnderThreshold(!onlyUnderThreshold)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer ${
+                    onlyUnderThreshold
+                      ? 'bg-red-50 border-red-600 text-red-600 font-black'
+                      : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
+                  }`}
+                >
+                  {currency === 'ZAR' ? 'Under R1,000' : 'Under $60'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOnlyInStock(!onlyInStock)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer ${
+                    onlyInStock
+                      ? 'bg-red-50 border-red-600 text-red-600 font-black'
+                      : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
+                  }`}
+                >
+                  In Stock Only
+                </button>
+
+                {/* Sort Dropdown */}
+                <div className="relative">
+                  <select
+                    id="sort-select-dropdown"
+                    value={sortOption}
+                    onChange={(e) => setSortOption(e.target.value as unknown as typeof sortOption)}
+                    className="appearance-none pl-3 pr-8 py-1.5 rounded-xl bg-white border border-zinc-200 text-xs font-mono text-black focus:outline-none focus:border-red-600 cursor-pointer"
+                  >
+                    <option value="featured">Sort: Featured</option>
+                    <option value="price-asc">Price: Low to High</option>
+                    <option value="price-desc">Price: High to Low</option>
+                    <option value="title">Alphabetical (A-Z)</option>
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+
+            {/* Product Grid or Empty State */}
+            {products.length === 0 ? (
+              <div className="py-20 text-center space-y-5 max-w-lg mx-auto">
+                <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center justify-center mx-auto text-red-600">
+                  <ShoppingBag className="w-8 h-8" />
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black text-black">
+                    {!isConfigured
+                      ? 'Shopify Storefront Token Required'
+                      : 'No Published Products Found'}
+                  </h3>
+                  <p className="text-xs text-zinc-600 leading-relaxed">
+                    {!isConfigured
+                      ? `Connect to your Shopify store (${SHOPIFY_STORE_DOMAIN}) by setting SHOPIFY_STOREFRONT_ACCESS_TOKEN in your Vercel deployment or environment.`
+                      : `Storefront connected to ${SHOPIFY_STORE_DOMAIN}, but no products were returned. Ensure your products are published to the Online Store / Headless sales channel in Shopify Admin.`}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => loadLiveProducts(false)}
+                    disabled={isRefreshingCatalog}
+                    className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-2"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingCatalog ? 'animate-spin' : ''}`} />
+                    <span>{isRefreshingCatalog ? 'Connecting...' : 'Check Connection'}</span>
+                  </button>
+
+                  <a
+                    href={`https://${SHOPIFY_STORE_DOMAIN}/admin`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-5 py-2.5 rounded-xl bg-black hover:bg-zinc-800 text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                  >
+                    Open Shopify Admin
+                  </a>
+                </div>
+              </div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="py-20 text-center space-y-4">
+                <div className="w-16 h-16 rounded-full bg-zinc-50 border border-zinc-200 flex items-center justify-center mx-auto text-zinc-400">
+                  <Filter className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-black text-black">
+                  No pieces match your active filters
+                </h3>
+                <p className="text-xs text-zinc-500 max-w-sm mx-auto leading-relaxed">
+                  Try adjusting your category, price range, or search keyword.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setCurrentCategory('all');
+                    setOnlyDrop26(false);
+                    setOnlyUnderThreshold(false);
+                    setOnlyInStock(false);
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-8">
+                {filteredProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    currency={currency}
+                    isWishlisted={isProductInWishlist(product.id)}
+                    onToggleWishlist={handleToggleWishlist}
+                    onQuickView={(p) => navigateTo(`/products/${p.handle}`)}
+                    onAddToCart={(prod, variant) => handleAddToCart(prod, variant, 1)}
+                  />
+                ))}
+              </div>
+            )}
+          </main>
+
+          {/* Brand Craft Section */}
+          <BrandStorySection />
+        </>
+      )}
+
+      {/* Footer */}
       <Footer
         onOpenFaq={() => setIsFaqOpen(true)}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomerPortal={() => setIsCustomerPortalOpen(true)}
       />
 
-      {/* Quick View / Full Product Details Modal */}
+      {/* Quick View / Full Product Details Modal (available as secondary quick preview) */}
       <ProductModal
         product={selectedProduct}
         currency={currency}
         isWishlisted={selectedProduct ? isProductInWishlist(selectedProduct.id) : false}
         onToggleWishlist={handleToggleWishlist}
-        onAddToCart={(prod, size, color, qty, discount) =>
-          handleAddToCart(prod, size, color, qty, discount)
-        }
+        onAddToCart={(prod, variant, qty) => handleAddToCart(prod, variant, qty)}
         onClose={() => setSelectedProduct(null)}
       />
 
-      {/* Cart Drawer */}
+      {/* Shopify Cart Drawer */}
       <CartDrawer
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
-        items={cartItems}
-        currency={currency}
+        cart={shopifyCart}
+        isLoading={isCartLoading}
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveFromCart}
-        onOpenCheckout={(code, discount) => {
-          setActiveCheckoutPromo({ code, discountPercent: discount });
-          setIsCheckoutOpen(true);
-        }}
+        onApplyDiscount={handleApplyDiscount}
         onBrowseProducts={scrollToCatalog}
       />
 
-      {/* Checkout Modal */}
+      {/* Direct Shopify Checkout Redirect Modal */}
       <CheckoutModal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
-        items={cartItems}
+        cart={shopifyCart}
         currency={currency}
-        promoCode={activeCheckoutPromo.code}
-        discountPercent={activeCheckoutPromo.discountPercent}
-        onOrderSuccess={handleOrderSuccess}
       />
 
       {/* Wishlist Drawer */}
@@ -563,51 +850,36 @@ export default function App() {
         currency={currency}
         onRemoveFromWishlist={handleToggleWishlist}
         onAddToCart={(prod) => {
-          handleAddToCart(prod, 'L');
-          handleToggleWishlist(prod);
+          setSelectedProduct(prod);
         }}
-        onQuickView={setSelectedProduct}
+        onQuickView={(p) => navigateTo(`/products/${p.handle}`)}
       />
 
-      {/* Customer Portal & Account Dashboard Modal */}
+      {/* Shopify Customer Account & Wishlist Modal */}
       <CustomerPortalModal
         isOpen={isCustomerPortalOpen}
         onClose={() => setIsCustomerPortalOpen(false)}
-        currentUser={currentUser}
-        onLogin={(user) => {
-          setCurrentUser(user);
-          showToast(`Welcome back, ${user.name}!`);
-        }}
-        onLogout={() => {
-          setCurrentUser(null);
-          showToast('Signed out of account');
-        }}
-        orders={customerOrders}
         savedProducts={wishlist}
         currency={currency}
-        onOpenTrackingModal={(orderId) => {
-          setSelectedTrackOrderId(orderId);
-          setIsCustomerPortalOpen(false);
-          setIsTrackOrderOpen(true);
+        onAddToCart={(prod) => {
+          setSelectedProduct(prod);
         }}
-        onAddToCart={(prod, size) => handleAddToCart(prod, size)}
-        onToggleWishlist={handleToggleWishlist}
+        onRemoveFromWishlist={handleToggleWishlist}
+        storeDomain={SHOPIFY_STORE_DOMAIN}
       />
 
-      {/* FAQ & Sizing Guide Modal */}
+      {/* Sizing & FAQ Modal */}
       <FaqModal
         isOpen={isFaqOpen}
         onClose={() => setIsFaqOpen(false)}
-        onOpenTrackOrder={() => {
-          setIsTrackOrderOpen(true);
-        }}
+        onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
       />
 
-      {/* Live Track Order Modal */}
+      {/* Official Shopify Order Tracking Modal */}
       <TrackOrderModal
         isOpen={isTrackOrderOpen}
         onClose={() => setIsTrackOrderOpen(false)}
-        defaultTrackingNumber={selectedTrackOrderId}
+        storeDomain={SHOPIFY_STORE_DOMAIN}
       />
     </div>
   );

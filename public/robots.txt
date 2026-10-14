@@ -1,0 +1,12 @@
+# Sanelow Merchant Store Robots Configuration
+# Intended Production Base URL: https://shop.sanelowmusiclabel.co.za
+
+User-agent: *
+Allow: /
+Disallow: /cart
+Disallow: /checkout
+Disallow: /account
+Disallow: /api/
+Disallow: /*?*q=
+
+Sitemap: https://shop.sanelowmusiclabel.co.za/sitemap.xml

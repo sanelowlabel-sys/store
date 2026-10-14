@@ -1,13 +1,13 @@
 import React from 'react';
-import { X, Heart, Trash2, ShoppingBag } from 'lucide-react';
-import { Product, CurrencyCode } from '../types';
-import { formatPrice } from '../data/products';
+import { X, Heart, Trash2, ShoppingBag, Info } from 'lucide-react';
+import { Product } from '../types';
+import { formatPrice } from '../lib/shopify';
 
 interface WishlistDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   wishlist: Product[];
-  currency: CurrencyCode;
+  currency?: string;
   onRemoveFromWishlist: (product: Product) => void;
   onAddToCart: (product: Product) => void;
   onQuickView: (product: Product) => void;
@@ -17,7 +17,7 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
   isOpen,
   onClose,
   wishlist,
-  currency,
+  currency = 'ZAR',
   onRemoveFromWishlist,
   onAddToCart,
   onQuickView,
@@ -44,9 +44,16 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
             type="button"
             onClick={onClose}
             className="p-2 rounded-lg text-zinc-500 hover:text-black hover:bg-zinc-100 transition-colors cursor-pointer"
+            aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Local device storage indicator */}
+        <div className="px-5 py-2.5 bg-zinc-50 border-b border-zinc-200 text-[11px] font-mono text-zinc-500 flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+          <span>Saved locally on this device in your browser.</span>
         </div>
 
         {/* List */}
@@ -61,7 +68,7 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
                   No saved merch
                 </h3>
                 <p className="text-xs text-zinc-500 mt-1 max-w-xs leading-relaxed">
-                  Tap the heart icon on any drop or collection piece to bookmark it for future drops.
+                  Tap the heart icon on any drop or collection piece to bookmark it on this device.
                 </p>
               </div>
             </div>
@@ -79,7 +86,11 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
                     onQuickView(prod);
                   }}
                 >
-                  <img src={prod.images[0]} alt={prod.title} className="w-full h-full object-cover" />
+                  <img
+                    src={prod.images[0]}
+                    alt={prod.title}
+                    className="w-full h-full object-cover"
+                  />
                 </div>
 
                 {/* Details */}
@@ -105,25 +116,26 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
                       </button>
                     </div>
 
-                    <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                      SKU: {prod.sku} • {prod.dropCollection}
+                    <div className="text-[10px] text-zinc-500 font-mono mt-0.5 line-clamp-1">
+                      {prod.dropCollection}
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-zinc-200">
                     <span className="text-xs font-mono font-black text-red-600">
-                      {formatPrice(prod.priceUSD, currency)}
+                      {formatPrice(prod.priceAmount, prod.currencyCode || currency)}
                     </span>
 
                     <button
                       type="button"
                       onClick={() => {
                         onAddToCart(prod);
+                        onClose();
                       }}
                       className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <ShoppingBag className="w-3 h-3" />
-                      <span>Select Size & Move</span>
+                      <span>View & Add</span>
                     </button>
                   </div>
                 </div>

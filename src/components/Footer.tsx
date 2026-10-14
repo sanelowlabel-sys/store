@@ -204,12 +204,9 @@ export const Footer: React.FC<FooterProps> = ({ onOpenFaq, onOpenTrackOrder, onO
             © {new Date().getFullYear()} Sanelow Merch Store. All rights reserved.
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-zinc-600 text-xs">
-            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">VISA</span>
-            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">Mastercard</span>
-            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">AMEX</span>
-            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">PayPal</span>
-            <span className="px-2 py-1 rounded bg-zinc-100 border border-zinc-200 font-bold">Apple Pay</span>
+          <div className="flex items-center gap-2 text-zinc-500 text-xs">
+            <Lock className="w-3.5 h-3.5 text-zinc-400" />
+            <span>Payment options & gateways provided securely at Shopify checkout</span>
           </div>
         </div>
       </div>

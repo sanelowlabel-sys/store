@@ -33,7 +33,7 @@ export const FaqModal: React.FC<FaqModalProps> = ({ isOpen, onClose, onOpenTrack
     },
     {
       q: 'What payment options are supported?',
-      a: 'We support all major payment providers through 256-bit encrypted checkout: Visa, Mastercard, American Express, PayPal, Apple Pay, Google Pay, and Instant Bank EFT.',
+      a: 'All available payment options (including credit/debit cards, digital wallets, or local payment methods) are provided securely through Shopify checkout based on the payment gateways configured for sx71id-uy.myshopify.com.',
       icon: CreditCard,
     },
   ];

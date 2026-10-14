@@ -1,27 +1,28 @@
-import React, { useState } from 'react';
-import { Heart, ShoppingBag, Eye, Star, Check, Truck, Flame, Layers } from 'lucide-react';
-import { Product, CurrencyCode, ProductColor, MerchSize } from '../types';
-import { formatPrice } from '../data/products';
+import React, { useState, useMemo } from 'react';
+import { Heart, ShoppingBag, Eye, Star, Check, Flame, AlertCircle } from 'lucide-react';
+import { Product, ShopifyVariant, ProductColor } from '../types';
+import { formatPrice } from '../lib/shopify';
 
 interface ProductCardProps {
   product: Product;
-  currency: CurrencyCode;
+  currency?: string;
   isWishlisted: boolean;
   onToggleWishlist: (product: Product) => void;
   onQuickView: (product: Product) => void;
-  onAddToCart: (product: Product, size: MerchSize, color?: ProductColor) => void;
+  onAddToCart?: (product: Product, variant: ShopifyVariant) => void;
+  onSelect?: (product: Product) => void;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
   product,
-  currency,
+  currency = 'ZAR',
   isWishlisted,
   onToggleWishlist,
   onQuickView,
   onAddToCart,
 }) => {
-  const [selectedSize, setSelectedSize] = useState<MerchSize>(
-    product.sizes.length > 0 ? product.sizes[Math.min(2, product.sizes.length - 1)] : 'M'
+  const [selectedSize, setSelectedSize] = useState<string>(
+    product.sizes.length > 0 ? product.sizes[0] : ''
   );
   const [selectedColor, setSelectedColor] = useState<ProductColor | undefined>(
     product.colors && product.colors.length > 0 ? product.colors[0] : undefined
@@ -29,16 +30,58 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const [isAddedRecently, setIsAddedRecently] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
+  // Map chosen options to the exact Shopify variant
+  const selectedVariant = useMemo(() => {
+    if (!product.variants || product.variants.length === 0) return null;
+
+    const exactMatch = product.variants.find((v) => {
+      const matchSize = selectedSize
+        ? v.selectedOptions.some(
+            (so) => ['size', 'sizes'].includes(so.name.toLowerCase()) && so.value === selectedSize
+          )
+        : true;
+      const matchColor = selectedColor
+        ? v.selectedOptions.some(
+            (so) =>
+              ['color', 'colour'].includes(so.name.toLowerCase()) && so.value === selectedColor.name
+          )
+        : true;
+      return matchSize && matchColor;
+    });
+
+    return exactMatch || product.variants[0];
+  }, [product.variants, selectedSize, selectedColor]);
+
+  const isVariantAvailable = selectedVariant ? selectedVariant.availableForSale : product.availableForSale;
+
+  const currentPriceAmount = selectedVariant
+    ? parseFloat(selectedVariant.price.amount)
+    : product.priceAmount;
+
+  const currentCurrency = selectedVariant?.price?.currencyCode || product.currencyCode || currency;
+
+  const comparePriceAmount = selectedVariant?.compareAtPrice?.amount
+    ? parseFloat(selectedVariant.compareAtPrice.amount)
+    : product.compareAtPriceAmount;
+
+  const hasDiscount = comparePriceAmount && comparePriceAmount > currentPriceAmount;
+  const discountPercent = hasDiscount
+    ? Math.round(((comparePriceAmount! - currentPriceAmount) / comparePriceAmount!) * 100)
+    : 0;
+
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onAddToCart(product, selectedSize, selectedColor);
+    if (!selectedVariant || !isVariantAvailable) return;
+
+    if (onAddToCart) {
+      onAddToCart(product, selectedVariant);
+    }
     setIsAddedRecently(true);
     setTimeout(() => setIsAddedRecently(false), 1600);
   };
 
-  const fabricWeight = product.fabricSpecs.find(
-    (s) => s.label.toLowerCase().includes('weight') || s.label.toLowerCase().includes('composition')
-  )?.value;
+  const primaryImage = product.images[0] || 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?auto=format&fit=crop&w=800&q=80';
+  const hoverImage = product.images[1] || primaryImage;
 
   return (
     <div
@@ -48,18 +91,29 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Product Image Stage */}
-      <div
-        className="relative aspect-[4/5] w-full overflow-hidden bg-zinc-100 cursor-pointer"
-        onClick={() => onQuickView(product)}
-      >
-        <img
-          src={isHovered && product.images[1] ? product.images[1] : product.images[0]}
-          alt={product.title}
-          className="h-full w-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
-          loading="lazy"
-        />
+      <div className="relative aspect-[4/5] w-full overflow-hidden bg-zinc-100">
+        <a
+          href={`/products/${product.handle}`}
+          onClick={(e) => {
+            if (!e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              onQuickView(product);
+            }
+          }}
+          className="block h-full w-full cursor-pointer"
+          aria-label={`View details for ${product.title}`}
+        >
+          <img
+            src={isHovered ? hoverImage : primaryImage}
+            alt={product.title}
+            className="h-full w-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
+            loading="lazy"
+            width="600"
+            height="750"
+          />
+        </a>
 
-        {/* Top Badges */}
+        {/* Top Badges (Only shown when genuine supporting data exists) */}
         <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-10 pointer-events-none">
           {product.badge && (
             <span
@@ -74,20 +128,25 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               {product.badge}
             </span>
           )}
-          <span className="px-2 py-0.5 rounded-md bg-white/95 border border-zinc-200 text-red-600 text-[10px] font-mono font-bold shadow-xs">
-            SAVE {product.discountPercent}%
-          </span>
+          {hasDiscount && (
+            <span className="px-2 py-0.5 rounded-md bg-white/95 border border-zinc-200 text-red-600 text-[10px] font-mono font-bold shadow-xs">
+              SAVE {discountPercent}%
+            </span>
+          )}
         </div>
 
-        {/* SKU Top Right under Wishlist */}
-        <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
-          <span className="px-2 py-0.5 rounded-md bg-black/75 text-white text-[10px] font-mono font-bold uppercase tracking-wider backdrop-blur-xs">
-            {product.sku}
-          </span>
-        </div>
+        {/* SKU tag if present */}
+        {product.sku && (
+          <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
+            <span className="px-2 py-0.5 rounded-md bg-black/75 text-white text-[10px] font-mono font-bold uppercase tracking-wider backdrop-blur-xs">
+              {product.sku}
+            </span>
+          </div>
+        )}
 
-        {/* Wishlist Button */}
+        {/* Wishlist Button (Local browser storage) */}
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onToggleWishlist(product);
@@ -104,75 +163,92 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
         {/* Quick View Button Hover Overlay */}
         <div className="absolute inset-x-3 bottom-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-2 z-20">
-          <button
+          <a
+            href={`/products/${product.handle}`}
             onClick={(e) => {
-              e.stopPropagation();
-              onQuickView(product);
+              if (!e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                onQuickView(product);
+              }
             }}
             className="flex-1 py-2 rounded-xl bg-white/95 hover:bg-black hover:text-white border border-zinc-300 text-xs font-bold text-black flex items-center justify-center gap-1.5 backdrop-blur-md transition-all shadow-md cursor-pointer"
           >
             <Eye className="w-3.5 h-3.5 text-red-600" />
-            <span>Fabric Specs & Sizing</span>
-          </button>
+            <span>Product Details & Options</span>
+          </a>
         </div>
       </div>
 
       {/* Content Body */}
       <div className="flex-1 p-4 flex flex-col justify-between space-y-3">
         <div>
-          {/* Drop Tag & Reviews */}
+          {/* Collection / Drop Tag */}
           <div className="flex items-center justify-between gap-2 text-xs mb-1">
-            <span className="text-[10px] font-mono uppercase text-zinc-500 font-bold tracking-wider">
+            <span className="text-[10px] font-mono uppercase text-zinc-500 font-bold tracking-wider line-clamp-1">
               {product.dropCollection}
             </span>
-            <div className="flex items-center gap-1 text-amber-500">
-              <Star className="w-3.5 h-3.5 fill-current" />
-              <span className="font-bold text-black text-xs">{product.rating}</span>
-              <span className="text-[10px] text-zinc-400">({product.reviewsCount})</span>
-            </div>
+            {/* Show reviews/rating ONLY if genuine data exists */}
+            {product.rating && (
+              <div className="flex items-center gap-1 text-amber-500 shrink-0">
+                <Star className="w-3.5 h-3.5 fill-current" />
+                <span className="font-bold text-black text-xs">{product.rating}</span>
+                {product.reviewsCount ? (
+                  <span className="text-[10px] text-zinc-400">({product.reviewsCount})</span>
+                ) : null}
+              </div>
+            )}
           </div>
 
           {/* Title in bold black */}
-          <h3
-            onClick={() => onQuickView(product)}
-            className="text-sm font-black text-black hover:text-red-600 transition-colors cursor-pointer line-clamp-1 leading-snug"
-          >
-            {product.title}
+          <h3 className="text-sm font-black text-black hover:text-red-600 transition-colors line-clamp-1 leading-snug">
+            <a
+              href={`/products/${product.handle}`}
+              onClick={(e) => {
+                if (!e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  onQuickView(product);
+                }
+              }}
+              className="cursor-pointer"
+            >
+              {product.title}
+            </a>
           </h3>
 
-          {/* Fabric Spec / Tagline in grey */}
           <p className="text-xs text-zinc-500 line-clamp-1 mt-0.5">
-            {fabricWeight || product.tagline}
+            {product.tagline}
           </p>
 
-          {/* Size Pills Selector */}
-          <div className="mt-2.5">
-            <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 mb-1">
-              <span>SELECT SIZE:</span>
-              <span className="text-black font-bold">{selectedSize}</span>
+          {/* Size Pills Selector (Options mapped from Shopify) */}
+          {product.sizes.length > 1 && (
+            <div className="mt-2.5">
+              <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                <span>SELECT OPTION:</span>
+                <span className="text-black font-bold">{selectedSize}</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {product.sizes.map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedSize(sz);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-all cursor-pointer ${
+                      selectedSize === sz
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'bg-zinc-50 text-zinc-700 border-zinc-200 hover:border-zinc-400'
+                    }`}
+                  >
+                    {sz}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1">
-              {product.sizes.map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedSize(sz);
-                  }}
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-all cursor-pointer ${
-                    selectedSize === sz
-                      ? 'bg-red-600 text-white border-red-600'
-                      : 'bg-zinc-50 text-zinc-700 border-zinc-200 hover:border-zinc-400'
-                  }`}
-                >
-                  {sz}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
 
-          {/* Color swatches preview */}
+          {/* Color swatches preview if colors exist */}
           {product.colors && product.colors.length > 0 && (
             <div className="flex items-center gap-1.5 mt-2.5">
               <span className="text-[10px] font-mono text-zinc-400 uppercase">COLOR:</span>
@@ -204,48 +280,51 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <div className="flex items-baseline justify-between mb-2">
             <div className="flex items-baseline gap-2">
               <span className="text-base font-black font-mono text-red-600">
-                {formatPrice(product.priceUSD, currency)}
+                {formatPrice(currentPriceAmount, currentCurrency)}
               </span>
-              <span className="text-xs font-mono text-zinc-400 line-through">
-                {formatPrice(product.compareAtPriceUSD, currency)}
-              </span>
+              {hasDiscount && (
+                <span className="text-xs font-mono text-zinc-400 line-through">
+                  {formatPrice(comparePriceAmount!, currentCurrency)}
+                </span>
+              )}
             </div>
 
-            {product.isPreOrder ? (
-              <span className="text-[10px] font-mono text-red-600 font-bold">
-                Pre-Order
-              </span>
-            ) : product.stockCount <= 15 ? (
-              <span className="text-[10px] font-mono text-red-600 font-bold flex items-center gap-0.5">
-                <Flame className="w-3 h-3 text-red-600" />
-                {product.stockCount} left
-              </span>
-            ) : (
+            {/* Truthful Variant Stock Indicator */}
+            {isVariantAvailable ? (
               <span className="text-[10px] font-mono text-emerald-600 font-semibold">
                 In Stock
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase">
+                Sold Out
               </span>
             )}
           </div>
 
-          {/* Add to Bag CTA in Red */}
+          {/* Add to Bag CTA */}
           <button
             type="button"
             onClick={handleQuickAdd}
+            disabled={!isVariantAvailable}
             className={`w-full py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm ${
-              isAddedRecently
+              !isVariantAvailable
+                ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+                : isAddedRecently
                 ? 'bg-emerald-600 text-white'
                 : 'bg-red-600 hover:bg-red-700 text-white'
             }`}
           >
-            {isAddedRecently ? (
+            {!isVariantAvailable ? (
+              <span>Unavailable</span>
+            ) : isAddedRecently ? (
               <>
                 <Check className="w-4 h-4" />
-                <span>Added ({selectedSize})</span>
+                <span>Added to Bag</span>
               </>
             ) : (
               <>
                 <ShoppingBag className="w-3.5 h-3.5" />
-                <span>Add ({selectedSize}) to Bag</span>
+                <span>Add to Bag</span>
               </>
             )}
           </button>

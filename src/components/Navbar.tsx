@@ -1,21 +1,20 @@
 import React, { useState } from 'react';
-import { ShoppingBag, Heart, Search, Globe, X, Menu, Truck, User, Sparkles } from 'lucide-react';
-import { CurrencyCode, Category, CustomerUser } from '../types';
+import { ShoppingBag, Heart, Search, Globe, X, Menu, Truck, User } from 'lucide-react';
+import { Category } from '../types';
 import { SUPPORTED_CURRENCIES, formatPrice } from '../data/products';
 
 interface NavbarProps {
   currentCategory: Category;
   onSelectCategory: (cat: Category) => void;
-  currency: CurrencyCode;
-  onSelectCurrency: (curr: CurrencyCode) => void;
+  currency: string;
+  onSelectCurrency: (curr: string) => void;
   cartCount: number;
-  cartTotalUSD: number;
+  cartTotalAmount: number;
   wishlistCount: number;
   onOpenCart: () => void;
   onOpenWishlist: () => void;
   onOpenTrackOrder: () => void;
   onOpenCustomerPortal: () => void;
-  currentUser: CustomerUser | null;
   searchQuery: string;
   onSearchChange: (q: string) => void;
 }
@@ -26,13 +25,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   currency,
   onSelectCurrency,
   cartCount,
-  cartTotalUSD,
+  cartTotalAmount,
   wishlistCount,
   onOpenCart,
   onOpenWishlist,
   onOpenTrackOrder,
   onOpenCustomerPortal,
-  currentUser,
   searchQuery,
   onSearchChange,
 }) => {
@@ -60,7 +58,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </span>
         <span className="hidden sm:inline text-zinc-400">•</span>
         <span className="hidden sm:inline text-zinc-300">
-          Complimentary Global Air Freight on Orders Over $45
+          Official Shopify Storefront • South Africa & Worldwide Delivery
         </span>
       </div>
 
@@ -78,11 +76,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {/* Brand Logo Only - Clean standalone logo without adjacent text */}
-          <button
-            type="button"
+          <a
+            href="/"
             id="navbar-brand-logo"
             className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded-xl hover:opacity-90 transition-opacity"
-            onClick={() => onSelectCategory('all')}
+            onClick={(e) => {
+              if (!e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                onSelectCategory('all');
+              }
+            }}
             aria-label="Sanelow Store Home"
           >
             <div className="relative flex items-center justify-center w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden bg-white border border-zinc-200 shadow-sm group shrink-0">
@@ -92,15 +95,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="w-full h-full object-contain p-0.5 group-hover:scale-105 transition-transform"
               />
             </div>
-          </button>
+          </a>
 
           {/* Desktop Categories */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5">
+          <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5" aria-label="Merchandise Categories">
             {categories.map((cat) => (
-              <button
+              <a
                 key={cat.key}
                 id={`nav-cat-${cat.key}`}
-                onClick={() => onSelectCategory(cat.key)}
+                href={cat.key === 'all' ? '/' : `/collections/${cat.key}`}
+                onClick={(e) => {
+                  if (!e.metaKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    onSelectCategory(cat.key);
+                  }
+                }}
                 className={`px-3 py-1.5 rounded-full text-xs font-bold tracking-tight transition-all cursor-pointer ${
                   currentCategory === cat.key
                     ? 'bg-red-600 text-white shadow-sm'
@@ -108,11 +117,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }`}
               >
                 {cat.label}
-              </button>
+              </a>
             ))}
           </nav>
 
-          {/* Action Buttons: Track Order, Customer Portal, Currency, Search, Wishlist, Cart */}
+          {/* Action Buttons: Track Order, Customer Account, Currency, Search, Wishlist, Cart */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
             {/* Track Order Button */}
             <button
@@ -137,11 +146,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
 
               {isCurrencyDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-44 rounded-xl bg-white border border-zinc-200 shadow-xl py-1 z-50 animate-in fade-in zoom-in-95">
+                <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white border border-zinc-200 shadow-xl py-1 z-50 animate-in fade-in zoom-in-95">
                   <div className="px-3 py-1.5 text-[10px] font-mono uppercase text-zinc-400 border-b border-zinc-100">
-                    Select Currency
+                    Storefront Market
                   </div>
-                  {(Object.keys(SUPPORTED_CURRENCIES) as CurrencyCode[]).map((cCode) => (
+                  {Object.keys(SUPPORTED_CURRENCIES).map((cCode) => (
                     <button
                       key={cCode}
                       id={`curr-select-${cCode}`}
@@ -175,35 +184,15 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Search className="w-4 h-4" />
             </button>
 
-            {/* Customer Account Button */}
+            {/* Customer Account Button (Direct link to Shopify portal / account) */}
             <button
               id="customer-account-btn"
               onClick={onOpenCustomerPortal}
               className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 text-zinc-800 transition-all cursor-pointer"
-              aria-label="Member Account"
+              aria-label="Shopify Account"
             >
-              {currentUser ? (
-                <>
-                  <div className="w-5 h-5 rounded-full overflow-hidden border border-red-600 shrink-0">
-                    <img
-                      src={
-                        currentUser.avatarUrl ||
-                        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80'
-                      }
-                      alt={currentUser.name}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <span className="hidden xl:inline text-xs font-bold text-black max-w-[90px] truncate">
-                    {currentUser.name.split(' ')[0]}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <User className="w-4 h-4 text-zinc-600" />
-                  <span className="hidden sm:inline text-xs font-bold">Sign In</span>
-                </>
-              )}
+              <User className="w-4 h-4 text-zinc-600" />
+              <span className="hidden sm:inline text-xs font-bold">Account</span>
             </button>
 
             {/* Wishlist Button */}
@@ -230,7 +219,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <ShoppingBag className="w-4 h-4" />
               <span className="hidden sm:inline">
-                {cartTotalUSD > 0 ? formatPrice(cartTotalUSD, currency) : 'BAG'}
+                {cartTotalAmount > 0 ? formatPrice(cartTotalAmount, currency) : 'BAG'}
               </span>
               <span className="w-5 h-5 rounded-full bg-white text-black text-[11px] font-mono font-black flex items-center justify-center">
                 {cartCount}
@@ -239,79 +228,53 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Live Search Bar Overlay if open */}
+        {/* Expandable Search Input Bar */}
         {isSearchOpen && (
-          <div className="py-3 border-t border-zinc-200 animate-in fade-in">
+          <div className="pb-4 pt-1 animate-in fade-in slide-in-from-top-2">
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
               <input
-                id="header-search-input"
                 type="text"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Search heavyweight hoodies (450 GSM), acid wash tees, varsity jackets, caps, cargos..."
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-zinc-50 border border-zinc-200 text-sm text-black placeholder-zinc-400 focus:outline-none focus:border-red-600 focus:bg-white transition-all font-sans"
+                placeholder="Search live catalogue by title, tag, or style..."
+                className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-black placeholder-zinc-400 font-mono focus:outline-none focus:border-red-600"
                 autoFocus
               />
               {searchQuery && (
                 <button
+                  type="button"
                   onClick={() => onSearchChange('')}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-black cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-black p-1 cursor-pointer"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
           </div>
         )}
 
-        {/* Mobile Navigation Drawer */}
+        {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden py-4 border-t border-zinc-200 space-y-2 animate-in slide-in-from-top-4 bg-white">
-            <div className="px-2 pb-2 text-[11px] font-mono uppercase text-zinc-500 font-bold">
-              Apparel Categories
-            </div>
+          <div className="lg:hidden pb-4 pt-2 border-t border-zinc-100 flex flex-col gap-1">
             {categories.map((cat) => (
-              <button
+              <a
                 key={cat.key}
-                onClick={() => {
-                  onSelectCategory(cat.key);
-                  setIsMobileMenuOpen(false);
+                href={cat.key === 'all' ? '/' : `/collections/${cat.key}`}
+                onClick={(e) => {
+                  if (!e.metaKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    onSelectCategory(cat.key);
+                    setIsMobileMenuOpen(false);
+                  }
                 }}
-                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-between ${
-                  currentCategory === cat.key
-                    ? 'bg-red-50 text-red-600 font-black'
-                    : 'text-zinc-700 hover:bg-zinc-100'
+                className={`text-left px-3 py-2 rounded-lg text-xs font-bold ${
+                  currentCategory === cat.key ? 'bg-red-50 text-red-600' : 'text-zinc-700'
                 }`}
               >
-                <span>{cat.label}</span>
-                {currentCategory === cat.key && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-600" />
-                )}
-              </button>
+                {cat.label}
+              </a>
             ))}
-            <div className="pt-2 border-t border-zinc-200 space-y-1">
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  onOpenCustomerPortal();
-                }}
-                className="w-full text-left px-3 py-2 text-xs font-bold text-zinc-800 hover:bg-zinc-50 flex items-center gap-2 rounded-xl"
-              >
-                <User className="w-4 h-4 text-red-600" />
-                <span>{currentUser ? 'Member Account Dashboard' : 'Sign In / Register'}</span>
-              </button>
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  onOpenTrackOrder();
-                }}
-                className="w-full text-left px-3 py-2 text-xs font-bold text-zinc-800 hover:bg-zinc-50 flex items-center gap-2 rounded-xl"
-              >
-                <Truck className="w-4 h-4 text-red-600" />
-                <span>Track My Merch Shipment</span>
-              </button>
-            </div>
           </div>
         )}
       </div>

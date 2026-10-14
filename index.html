@@ -3,21 +3,68 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sanelow Merchant Store</title>
-    <meta name="description" content="Premium apparel and merch brand store featuring exclusive seasonal drops, heavyweight hoodies, graphic tees, outerwear, and accessories with real-time order tracking." />
-    <meta property="og:title" content="Sanelow Merchant Store" />
-    <meta property="og:description" content="Premium apparel and merch brand store featuring exclusive seasonal drops, heavyweight hoodies, graphic tees, outerwear, and accessories with real-time order tracking." />
+    <title>Sanelow Merchant Store | Official Streetwear & Merch</title>
+    <meta name="description" content="Official Sanelow merchandise store. Exclusive heavyweight hoodies, graphic tees, outerwear and accessories crafted in South Africa." />
+    <link rel="canonical" href="https://shop.sanelowmusiclabel.co.za/" />
+    
+    <!-- OpenGraph Social Sharing -->
+    <meta property="og:site_name" content="Sanelow Merchant Store" />
     <meta property="og:type" content="website" />
+    <meta property="og:title" content="Sanelow Merchant Store | Official Streetwear & Merch" />
+    <meta property="og:description" content="Official Sanelow merchandise store. Exclusive heavyweight hoodies, graphic tees, outerwear and accessories crafted in South Africa." />
+    <meta property="og:url" content="https://shop.sanelowmusiclabel.co.za/" />
+    <meta property="og:image" content="https://shop.sanelowmusiclabel.co.za/sanelow-logo.jpg" />
+
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Sanelow Merchant Store | Official Streetwear & Merch" />
+    <meta name="twitter:description" content="Official Sanelow merchandise store. Exclusive heavyweight hoodies, graphic tees, outerwear and accessories crafted in South Africa." />
+    <meta name="twitter:image" content="https://shop.sanelowmusiclabel.co.za/sanelow-logo.jpg" />
+
     <link rel="icon" type="image/jpeg" href="/sanelow-logo.jpg" />
     <meta name="theme-color" content="#dc2626" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Schema.org Structured Data: Organization & WebSite -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://shop.sanelowmusiclabel.co.za/#organization",
+          "name": "Sanelow Merchant Store",
+          "url": "https://shop.sanelowmusiclabel.co.za",
+          "logo": "https://shop.sanelowmusiclabel.co.za/sanelow-logo.jpg",
+          "sameAs": [
+            "https://sanelowmusiclabel.co.za"
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://shop.sanelowmusiclabel.co.za/#website",
+          "name": "Sanelow Merchant Store",
+          "url": "https://shop.sanelowmusiclabel.co.za",
+          "publisher": {
+            "@id": "https://shop.sanelowmusiclabel.co.za/#organization"
+          },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://shop.sanelowmusiclabel.co.za/?q={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
+        }
+      ]
+    }
+    </script>
   </head>
   <body class="bg-white text-black font-sans antialiased selection:bg-red-600 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
