@@ -9,35 +9,49 @@ import {
   Trash2,
   Info,
   Lock,
+  AlertTriangle,
+  Mail,
+  KeyRound,
+  FileText,
+  LogOut,
+  HelpCircle,
 } from 'lucide-react';
 import { Product } from '../types';
-import { formatPrice } from '../lib/shopify';
+import { formatPrice, SHOPIFY_CUSTOMER_ACCOUNT_URL } from '../lib/shopify';
 
 interface CustomerPortalModalProps {
   isOpen: boolean;
   onClose: () => void;
-  savedProducts: Product[];
+  savedProducts?: Product[];
   currency?: string;
-  onAddToCart: (product: Product) => void;
-  onRemoveFromWishlist: (product: Product) => void;
-  storeDomain?: string;
+  onAddToCart?: (product: Product) => void;
+  onRemoveFromWishlist?: (product: Product) => void;
+  customerAccountUrl?: string;
+  initialTab?: 'account' | 'wishlist';
 }
 
 export const CustomerPortalModal: React.FC<CustomerPortalModalProps> = ({
   isOpen,
   onClose,
-  savedProducts,
+  savedProducts = [],
   currency = 'ZAR',
   onAddToCart,
   onRemoveFromWishlist,
-  storeDomain = 'sx71id-uy.myshopify.com',
+  customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
+  initialTab = 'account',
 }) => {
   if (!isOpen) return null;
 
-  const [activeTab, setActiveTab] = useState<'account' | 'wishlist'>('account');
+  const [activeTab, setActiveTab] = useState<'account' | 'wishlist'>(initialTab);
+  const isConfigured = Boolean(customerAccountUrl && customerAccountUrl.trim().length > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 lg:p-8 bg-black/60 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="customer-portal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 lg:p-8 bg-black/60 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200"
+    >
       <div
         id="customer-portal-dialog"
         className="relative w-full max-w-2xl rounded-3xl bg-white border border-zinc-200 text-black shadow-2xl overflow-hidden my-auto flex flex-col max-h-[90vh]"
@@ -50,18 +64,18 @@ export const CustomerPortalModal: React.FC<CustomerPortalModalProps> = ({
               <User className="w-5 h-5 text-red-600" />
             </div>
             <div>
-              <h2 className="text-base font-black text-black uppercase tracking-wider">
-                Customer Account & Wishlist
+              <h2 id="customer-portal-title" className="text-base font-black text-black uppercase tracking-wider">
+                Customer Account
               </h2>
               <p className="text-xs text-zinc-500 font-mono">
-                Storefront ID: {storeDomain}
+                Shopify-Hosted Authentication & Orders
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="p-2 rounded-xl text-zinc-400 hover:text-black hover:bg-zinc-100 transition-colors cursor-pointer"
-            aria-label="Close"
+            aria-label="Close dialog"
           >
             <X className="w-5 h-5" />
           </button>
@@ -98,49 +112,131 @@ export const CustomerPortalModal: React.FC<CustomerPortalModalProps> = ({
         <div className="p-6 overflow-y-auto space-y-6">
           {activeTab === 'account' ? (
             <div className="space-y-6">
-              {/* Honest Explanation Box */}
-              <div className="p-5 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-3">
-                <div className="flex items-center gap-2 text-xs font-mono font-bold text-black uppercase">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Secure Shopify Customer Portal</span>
-                </div>
-                <p className="text-xs text-zinc-600 leading-relaxed">
-                  For your security and privacy, customer account authentication, password management, and verified order history are hosted directly on Shopify's secure servers.
-                </p>
-                <div className="pt-2 border-t border-zinc-200 text-xs text-zinc-500 space-y-1 font-mono">
-                  <div>• View past fulfilled orders and printable invoices</div>
-                  <div>• Manage delivery addresses and contact information</div>
-                  <div>• Check real-time fulfillment milestones</div>
-                </div>
-              </div>
-
-              {/* Direct Access CTA */}
-              <div className="p-5 rounded-2xl bg-red-50/60 border border-red-200 space-y-3 text-center sm:text-left sm:flex sm:items-center sm:justify-between sm:space-y-0">
-                <div>
-                  <h4 className="text-sm font-black text-black">
-                    Log in to Your Shopify Account
-                  </h4>
-                  <p className="text-xs text-zinc-600 mt-0.5">
-                    Enter the email address you used during checkout to receive your secure sign-in code.
+              {/* If NOT configured, display truthful configuration message */}
+              {!isConfigured ? (
+                <div className="p-5 rounded-2xl bg-amber-50/80 border border-amber-200 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-mono font-bold text-amber-900 uppercase">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Configuration Notice — Hosted Customer Accounts</span>
+                  </div>
+                  <p className="text-xs text-amber-900/90 leading-relaxed font-sans">
+                    The official Shopify customer-account URL has not been configured in the storefront environment variables.
                   </p>
-                </div>
-                <a
-                  href={`https://${storeDomain}/account`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-sm inline-flex items-center gap-2 shrink-0 cursor-pointer"
-                >
-                  <span>Open Shopify Account</span>
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              </div>
+                  <p className="text-xs text-zinc-700 leading-relaxed font-sans">
+                    To preserve buyer security, this storefront delegates sign-in, account creation, and passwordless authentication exclusively to Shopify-hosted customer accounts. We do not invent an account URL or infer it from the storefront domain.
+                  </p>
 
-              <div className="flex items-center justify-center gap-2 text-[11px] font-mono text-zinc-400">
-                <Lock className="w-3.5 h-3.5 text-zinc-500" />
-                <span>Protected by Shopify TLS 1.3 encryption</span>
-              </div>
+                  <div className="p-3.5 rounded-xl bg-white/80 border border-amber-200 space-y-2 text-xs font-mono text-zinc-700">
+                    <div className="font-bold text-zinc-900 uppercase text-[11px]">
+                      How to configure SHOPIFY_CUSTOMER_ACCOUNT_URL:
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1 text-[11px] text-zinc-600">
+                      <li>Log in to your Shopify Admin for this store.</li>
+                      <li>Navigate to <strong>Settings</strong> &rarr; <strong>Customer accounts</strong>.</li>
+                      <li>Ensure <strong>New customer accounts</strong> is enabled.</li>
+                      <li>Copy the generated Customer Account URL (e.g. <code className="bg-zinc-100 px-1 py-0.5 rounded text-black font-semibold">https://shopify.com/&lt;store-id&gt;/account</code> or custom subdomain).</li>
+                      <li>Set <code className="bg-zinc-100 px-1 py-0.5 rounded text-black font-semibold">SHOPIFY_CUSTOMER_ACCOUNT_URL</code> in your Vercel or development environment variables.</li>
+                    </ol>
+                  </div>
+
+                  <div className="pt-2 border-t border-amber-200/60 text-xs text-zinc-600 space-y-1">
+                    <p className="font-medium text-black">
+                      Already placed an order?
+                    </p>
+                    <p>
+                      You do not need an account to track recent orders. Use the secure <strong>Order Status</strong> link sent directly in your Shopify order confirmation email.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* Configured state: Direct Access & Real Authentication Explanation */
+                <div className="space-y-4">
+                  <div className="p-5 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-mono font-bold text-black uppercase">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                      <span>Official Shopify-Hosted Customer Accounts</span>
+                    </div>
+                    <p className="text-xs text-zinc-600 leading-relaxed">
+                      Sanelow Music uses official Shopify customer accounts. All authentication, orders, shipping addresses, and sign-out sessions are securely hosted by Shopify.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                      <div className="p-3 rounded-xl bg-white border border-zinc-200 space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-black">
+                          <Mail className="w-3.5 h-3.5 text-red-600" />
+                          <span>Emailed One-Time Codes</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-500 leading-normal">
+                          No passwords required. Enter the email used at checkout to receive a secure 6-digit verification code.
+                        </p>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-white border border-zinc-200 space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-black">
+                          <FileText className="w-3.5 h-3.5 text-red-600" />
+                          <span>Verified Order History</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-500 leading-normal">
+                          Access full order history, printable receipts, and live courier tracking links once recorded by the carrier.
+                        </p>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-white border border-zinc-200 space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-black">
+                          <LogOut className="w-3.5 h-3.5 text-red-600" />
+                          <span>Sign Out Inside Shopify</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-500 leading-normal">
+                          For this hosted-only release, sign out directly within your hosted Shopify account pages.
+                        </p>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-white border border-zinc-200 space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-black">
+                          <HelpCircle className="w-3.5 h-3.5 text-red-600" />
+                          <span>Storefront Session Note</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-500 leading-normal">
+                          Hosted authentication does not create a signed-in state inside this custom React storefront.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Primary CTA button */}
+                  <div className="p-5 rounded-2xl bg-red-50/70 border border-red-200 space-y-3 sm:flex sm:items-center sm:justify-between sm:space-y-0">
+                    <div>
+                      <h4 className="text-sm font-black text-black">
+                        Sign In or Create Account
+                      </h4>
+                      <p className="text-xs text-zinc-600 mt-0.5">
+                        Delegated to your store's verified Shopify customer-account portal.
+                      </p>
+                      <div className="text-[11px] font-mono text-zinc-500 mt-1 truncate max-w-sm">
+                        {customerAccountUrl}
+                      </div>
+                    </div>
+                    <a
+                      id="customer-portal-open-link"
+                      href={customerAccountUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-sm inline-flex items-center gap-2 shrink-0 cursor-pointer"
+                    >
+                      <span>Open Shopify Account</span>
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-2 text-[11px] font-mono text-zinc-400">
+                    <Lock className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Protected by Shopify TLS 1.3 encryption</span>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
+            /* Saved Wishlist Tab */
             <div className="space-y-4">
               <div className="flex items-center gap-2 p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-500 font-mono">
                 <Info className="w-4 h-4 text-zinc-600 shrink-0" />
@@ -178,22 +274,26 @@ export const CustomerPortalModal: React.FC<CustomerPortalModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => onAddToCart(prod)}
-                          className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase transition-colors cursor-pointer flex items-center gap-1.5"
-                        >
-                          <ShoppingBag className="w-3.5 h-3.5" />
-                          <span>Add</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onRemoveFromWishlist(prod)}
-                          className="p-2 text-zinc-400 hover:text-red-600 transition-colors cursor-pointer"
-                          aria-label="Remove"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {onAddToCart && (
+                          <button
+                            type="button"
+                            onClick={() => onAddToCart(prod)}
+                            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase transition-colors cursor-pointer flex items-center gap-1.5"
+                          >
+                            <ShoppingBag className="w-3.5 h-3.5" />
+                            <span>Add</span>
+                          </button>
+                        )}
+                        {onRemoveFromWishlist && (
+                          <button
+                            type="button"
+                            onClick={() => onRemoveFromWishlist(prod)}
+                            className="p-2 text-zinc-400 hover:text-red-600 transition-colors cursor-pointer"
+                            aria-label="Remove"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

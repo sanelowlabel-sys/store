@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ShoppingBag, Heart, Search, Globe, X, Menu, Truck, User } from 'lucide-react';
 import { Category } from '../types';
 import { SUPPORTED_CURRENCIES, formatPrice } from '../data/products';
+import { SHOPIFY_CUSTOMER_ACCOUNT_URL } from '../lib/shopify';
 
 interface NavbarProps {
   currentCategory: Category;
@@ -15,6 +16,7 @@ interface NavbarProps {
   onOpenWishlist: () => void;
   onOpenTrackOrder: () => void;
   onOpenCustomerPortal: () => void;
+  customerAccountUrl?: string;
   searchQuery: string;
   onSearchChange: (q: string) => void;
   isLoading?: boolean;
@@ -32,6 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenWishlist,
   onOpenTrackOrder,
   onOpenCustomerPortal,
+  customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
   searchQuery,
   onSearchChange,
   isLoading = false,
@@ -129,17 +132,26 @@ export const Navbar: React.FC<NavbarProps> = ({
             ))}
           </nav>
 
-          {/* Action Buttons: Track Order, Customer Account, Currency, Search, Wishlist, Cart */}
+          {/* Action Buttons: My orders, Currency, Search, Sign in / Create account, Wishlist, Cart */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Track Order Button */}
-            <button
-              id="track-order-btn"
-              onClick={onOpenTrackOrder}
+            {/* My orders link */}
+            <a
+              id="nav-my-orders-link"
+              href={customerAccountUrl || '#my-orders'}
+              onClick={(e) => {
+                if (!customerAccountUrl) {
+                  e.preventDefault();
+                  onOpenTrackOrder();
+                }
+              }}
+              target={customerAccountUrl ? '_blank' : undefined}
+              rel={customerAccountUrl ? 'noopener noreferrer' : undefined}
               className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100/90 border border-zinc-200 text-xs font-bold text-zinc-700 hover:text-black hover:border-zinc-300 transition-colors cursor-pointer"
+              aria-label="My orders"
             >
               <Truck className="w-3.5 h-3.5 text-red-600" />
-              <span>Track Order</span>
-            </button>
+              <span>My orders</span>
+            </a>
 
             {/* Currency Selector */}
             <div className="relative">
@@ -192,16 +204,25 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Search className="w-4 h-4" />
             </button>
 
-            {/* Customer Account Button (Direct link to Shopify portal / account) */}
-            <button
-              id="customer-account-btn"
-              onClick={onOpenCustomerPortal}
+            {/* Sign in / Create account Link */}
+            <a
+              id="nav-customer-account-link"
+              href={customerAccountUrl || '#sign-in'}
+              onClick={(e) => {
+                if (!customerAccountUrl) {
+                  e.preventDefault();
+                  onOpenCustomerPortal();
+                }
+              }}
+              target={customerAccountUrl ? '_blank' : undefined}
+              rel={customerAccountUrl ? 'noopener noreferrer' : undefined}
               className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 text-zinc-800 transition-all cursor-pointer"
-              aria-label="Shopify Account"
+              aria-label="Sign in / Create account"
             >
               <User className="w-4 h-4 text-zinc-600" />
-              <span className="hidden sm:inline text-xs font-bold">Account</span>
-            </button>
+              <span className="hidden sm:inline text-xs font-bold">Sign in / Create account</span>
+              <span className="sm:hidden text-xs font-bold">Account</span>
+            </a>
 
             {/* Wishlist Button */}
             <button
@@ -265,6 +286,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
           <div className="lg:hidden pb-4 pt-2 border-t border-zinc-100 flex flex-col gap-1">
+            <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-zinc-400">
+              Collections
+            </div>
             {categories.map((cat) => (
               <a
                 key={cat.key}
@@ -283,6 +307,48 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {cat.label}
               </a>
             ))}
+
+            <div className="mt-2 pt-2 border-t border-zinc-100 flex flex-col gap-1">
+              <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-zinc-400">
+                Customer Account & Orders
+              </div>
+              <a
+                id="mobile-nav-sign-in"
+                href={customerAccountUrl || '#sign-in'}
+                onClick={(e) => {
+                  if (!customerAccountUrl) {
+                    e.preventDefault();
+                    onOpenCustomerPortal();
+                  }
+                  setIsMobileMenuOpen(false);
+                }}
+                target={customerAccountUrl ? '_blank' : undefined}
+                rel={customerAccountUrl ? 'noopener noreferrer' : undefined}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-bold text-zinc-800 hover:bg-zinc-50 transition-colors cursor-pointer"
+                aria-label="Sign in / Create account"
+              >
+                <User className="w-4 h-4 text-red-600" />
+                <span>Sign in / Create account</span>
+              </a>
+              <a
+                id="mobile-nav-my-orders"
+                href={customerAccountUrl || '#my-orders'}
+                onClick={(e) => {
+                  if (!customerAccountUrl) {
+                    e.preventDefault();
+                    onOpenTrackOrder();
+                  }
+                  setIsMobileMenuOpen(false);
+                }}
+                target={customerAccountUrl ? '_blank' : undefined}
+                rel={customerAccountUrl ? 'noopener noreferrer' : undefined}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-bold text-zinc-800 hover:bg-zinc-50 transition-colors cursor-pointer"
+                aria-label="My orders"
+              >
+                <Truck className="w-4 h-4 text-red-600" />
+                <span>My orders</span>
+              </a>
+            </div>
           </div>
         )}
       </div>

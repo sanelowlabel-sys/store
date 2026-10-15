@@ -11,6 +11,14 @@ import {
 export const SHOPIFY_STORE_DOMAIN =
   import.meta.env.VITE_SHOPIFY_STORE_DOMAIN || 'sx71id-uy.myshopify.com';
 
+// Configurable Shopify Hosted Customer Account URL (from Shopify Admin -> Settings -> Customer accounts)
+// Do NOT invent or infer an account URL from the storefront domain.
+export const SHOPIFY_CUSTOMER_ACCOUNT_URL: string = (
+  (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_SHOPIFY_CUSTOMER_ACCOUNT_URL || import.meta.env?.SHOPIFY_CUSTOMER_ACCOUNT_URL)) ||
+  (typeof process !== 'undefined' && (process.env?.SHOPIFY_CUSTOMER_ACCOUNT_URL || process.env?.VITE_SHOPIFY_CUSTOMER_ACCOUNT_URL)) ||
+  ''
+).trim();
+
 export const DEFAULT_COUNTRY =
   (import.meta.env.VITE_DEFAULT_COUNTRY_CODE || 'ZA').toUpperCase();
 

@@ -301,6 +301,14 @@ function shopifyDevServerPlugin(): Plugin {
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss(), shopifyDevServerPlugin()],
+    define: {
+      'process.env.SHOPIFY_CUSTOMER_ACCOUNT_URL': JSON.stringify(
+        process.env.SHOPIFY_CUSTOMER_ACCOUNT_URL || process.env.VITE_SHOPIFY_CUSTOMER_ACCOUNT_URL || ''
+      ),
+      'process.env.VITE_SHOPIFY_CUSTOMER_ACCOUNT_URL': JSON.stringify(
+        process.env.VITE_SHOPIFY_CUSTOMER_ACCOUNT_URL || process.env.SHOPIFY_CUSTOMER_ACCOUNT_URL || ''
+      ),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

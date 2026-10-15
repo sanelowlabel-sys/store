@@ -33,6 +33,7 @@ import {
   removeLineFromCart,
   applyDiscountToCart,
   SHOPIFY_STORE_DOMAIN,
+  SHOPIFY_CUSTOMER_ACCOUNT_URL,
   DEFAULT_CURRENCY,
 } from './lib/shopify';
 
@@ -512,6 +513,7 @@ export default function App() {
         onOpenWishlist={() => setIsWishlistOpen(true)}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomerPortal={() => setIsCustomerPortalOpen(true)}
+        customerAccountUrl={SHOPIFY_CUSTOMER_ACCOUNT_URL}
         searchQuery={searchQuery}
         onSearchChange={(q) => {
           setSearchQuery(q);
@@ -807,6 +809,7 @@ export default function App() {
         onOpenFaq={() => setIsFaqOpen(true)}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomerPortal={() => setIsCustomerPortalOpen(true)}
+        customerAccountUrl={SHOPIFY_CUSTOMER_ACCOUNT_URL}
       />
 
       {/* Quick View / Full Product Details Modal (available as secondary quick preview) */}
@@ -862,7 +865,7 @@ export default function App() {
           setSelectedProduct(prod);
         }}
         onRemoveFromWishlist={handleToggleWishlist}
-        storeDomain={SHOPIFY_STORE_DOMAIN}
+        customerAccountUrl={SHOPIFY_CUSTOMER_ACCOUNT_URL}
       />
 
       {/* Sizing & FAQ Modal */}
@@ -876,7 +879,11 @@ export default function App() {
       <TrackOrderModal
         isOpen={isTrackOrderOpen}
         onClose={() => setIsTrackOrderOpen(false)}
-        storeDomain={SHOPIFY_STORE_DOMAIN}
+        customerAccountUrl={SHOPIFY_CUSTOMER_ACCOUNT_URL}
+        onOpenCustomerPortal={() => {
+          setIsTrackOrderOpen(false);
+          setIsCustomerPortalOpen(true);
+        }}
       />
     </div>
   );

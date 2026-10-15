@@ -1,13 +1,20 @@
 import React, { useState } from 'react';
-import { ArrowRight, Check, ShieldCheck, Truck, HelpCircle, Mail, Clock, RefreshCw, Lock } from 'lucide-react';
+import { ArrowRight, Check, ShieldCheck, Truck, HelpCircle, Mail, Clock, RefreshCw, Lock, User } from 'lucide-react';
+import { SHOPIFY_CUSTOMER_ACCOUNT_URL } from '../lib/shopify';
 
 interface FooterProps {
   onOpenFaq: () => void;
   onOpenTrackOrder: () => void;
   onOpenCustomerPortal?: () => void;
+  customerAccountUrl?: string;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onOpenFaq, onOpenTrackOrder, onOpenCustomerPortal }) => {
+export const Footer: React.FC<FooterProps> = ({
+  onOpenFaq,
+  onOpenTrackOrder,
+  onOpenCustomerPortal,
+  customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
+}) => {
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [isSubscribed, setIsSubscribed] = useState(false);
 
@@ -108,7 +115,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenFaq, onOpenTrackOrder, onO
                   className="hover:text-red-600 transition-colors text-left flex items-center gap-1.5 cursor-pointer text-zinc-700 font-bold"
                 >
                   <Truck className="w-3.5 h-3.5 text-red-600" />
-                  <span>Track Your Shipment</span>
+                  <span>Track Your Shipment & Orders</span>
                 </button>
               </li>
               {onOpenCustomerPortal && (
@@ -116,9 +123,10 @@ export const Footer: React.FC<FooterProps> = ({ onOpenFaq, onOpenTrackOrder, onO
                   <button
                     type="button"
                     onClick={onOpenCustomerPortal}
-                    className="hover:text-red-600 transition-colors text-left cursor-pointer text-zinc-700"
+                    className="hover:text-red-600 transition-colors text-left flex items-center gap-1.5 cursor-pointer text-zinc-700"
                   >
-                    Customer Account Portal
+                    <User className="w-3.5 h-3.5 text-red-600" />
+                    <span>Sign in / Create account</span>
                   </button>
                 </li>
               )}

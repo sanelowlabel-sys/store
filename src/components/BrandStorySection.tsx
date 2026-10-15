@@ -1,5 +1,7 @@
 import React from 'react';
 import { Truck, ShieldCheck, Zap, Scissors, CheckCircle2, Award, ShoppingBag } from 'lucide-react';
+import merchCraftsmanshipImg from '../assets/images/sanelow_merch_one_1792052950533.jpg';
+import merchDropsImg from '../assets/images/sanelow_merch_two_1792052967801.jpg';
 
 export const BrandStorySection: React.FC = () => {
   return (
@@ -11,8 +13,8 @@ export const BrandStorySection: React.FC = () => {
             <div className="space-y-4">
               <div className="relative rounded-2xl overflow-hidden aspect-[4/5] bg-zinc-100 border border-zinc-200 shadow-sm">
                 <img
-                  src="https://images.unsplash.com/photo-1558769132-cb1aea458c5e?auto=format&fit=crop&w=800&q=80"
-                  alt="Garment loom craftsmanship and heavyweight cotton weaving"
+                  src={merchCraftsmanshipImg}
+                  alt="Person wearing official Sanelow Music Merch House Friends Records graphic sweatshirt"
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
@@ -43,8 +45,8 @@ export const BrandStorySection: React.FC = () => {
               </div>
               <div className="relative rounded-2xl overflow-hidden aspect-[4/5] bg-zinc-100 border border-zinc-200 shadow-sm">
                 <img
-                  src="https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=800&q=80"
-                  alt="Apparel streetwear styling and merchandise archive"
+                  src={merchDropsImg}
+                  alt="Person wearing official Sanelow Music Merch Me and Music graphic hoodie"
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
