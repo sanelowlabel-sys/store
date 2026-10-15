@@ -1,8 +1,26 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { SHOPIFY_API_VERSION } from './_operations';
-import { getBaseUrl, escapeXml } from './_seo';
 
+export const SHOPIFY_API_VERSION = '2026-10';
+export const DEFAULT_SITE_URL = 'https://shop.sanelowmusiclabel.co.za';
 const REQUIRED_STORE_DOMAIN = 'sx71id-uy.myshopify.com';
+
+export function getBaseUrl(): string {
+  const envUrl = process.env.SITE_URL || process.env.VITE_SITE_URL;
+  if (envUrl && envUrl.trim()) {
+    return envUrl.trim().replace(/\/+$/, '');
+  }
+  return DEFAULT_SITE_URL;
+}
+
+export function escapeXml(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
 interface SitemapItem {
   handle: string;
@@ -130,69 +148,70 @@ async function fetchAllCollections(headers: Record<string, string>): Promise<Sit
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  const baseUrl = getBaseUrl();
-  const privateToken = process.env.SHOPIFY_STOREFRONT_PRIVATE_TOKEN;
-  const publicToken = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+  try {
+    const baseUrl = getBaseUrl();
+    const privateToken = process.env.SHOPIFY_STOREFRONT_PRIVATE_TOKEN;
+    const publicToken = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
 
-  let products: SitemapItem[] = [];
-  let collections: SitemapItem[] = [];
+    let products: SitemapItem[] = [];
+    let collections: SitemapItem[] = [];
 
-  if (privateToken || publicToken) {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    };
+    if (privateToken || publicToken) {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
 
-    if (privateToken) {
-      headers['Shopify-Storefront-Private-Token'] = privateToken;
-    } else if (publicToken) {
-      headers['X-Shopify-Storefront-Access-Token'] = publicToken;
+      if (privateToken) {
+        headers['Shopify-Storefront-Private-Token'] = privateToken;
+      } else if (publicToken) {
+        headers['X-Shopify-Storefront-Access-Token'] = publicToken;
+      }
+
+      // Concurrently paginate products and collections
+      const [fetchedProducts, fetchedCollections] = await Promise.all([
+        fetchAllProducts(headers),
+        fetchAllCollections(headers),
+      ]);
+      products = fetchedProducts;
+      collections = fetchedCollections;
     }
 
-    // Concurrently paginate products and collections
-    const [fetchedProducts, fetchedCollections] = await Promise.all([
-      fetchAllProducts(headers),
-      fetchAllCollections(headers),
-    ]);
-    products = fetchedProducts;
-    collections = fetchedCollections;
-  }
+    const now = new Date().toISOString().split('T')[0];
 
-  const now = new Date().toISOString().split('T')[0];
+    const urls: { loc: string; lastmod?: string; changefreq: string; priority: string }[] = [
+      {
+        loc: `${baseUrl}/`,
+        lastmod: now,
+        changefreq: 'daily',
+        priority: '1.0',
+      },
+    ];
 
-  const urls: { loc: string; lastmod?: string; changefreq: string; priority: string }[] = [
-    {
-      loc: `${baseUrl}/`,
-      lastmod: now,
-      changefreq: 'daily',
-      priority: '1.0',
-    },
-  ];
-
-  for (const c of collections) {
-    if (c.handle) {
-      urls.push({
-        loc: `${baseUrl}/collections/${encodeURIComponent(c.handle)}`,
-        lastmod: c.updatedAt ? c.updatedAt.split('T')[0] : now,
-        changefreq: 'weekly',
-        priority: '0.8',
-      });
+    for (const c of collections) {
+      if (c.handle) {
+        urls.push({
+          loc: `${baseUrl}/collections/${encodeURIComponent(c.handle)}`,
+          lastmod: c.updatedAt ? c.updatedAt.split('T')[0] : now,
+          changefreq: 'weekly',
+          priority: '0.8',
+        });
+      }
     }
-  }
 
-  for (const p of products) {
-    if (p.handle) {
-      urls.push({
-        loc: `${baseUrl}/products/${encodeURIComponent(p.handle)}`,
-        lastmod: p.updatedAt ? p.updatedAt.split('T')[0] : now,
-        changefreq: 'weekly',
-        priority: '0.9',
-      });
+    for (const p of products) {
+      if (p.handle) {
+        urls.push({
+          loc: `${baseUrl}/products/${encodeURIComponent(p.handle)}`,
+          lastmod: p.updatedAt ? p.updatedAt.split('T')[0] : now,
+          changefreq: 'weekly',
+          priority: '0.9',
+        });
+      }
     }
-  }
 
-  // Construct XML with XML entity escaping to avoid XML syntax corruption
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    // Construct XML with XML entity escaping to avoid XML syntax corruption
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls
   .map(
@@ -206,8 +225,16 @@ ${urls
   .join('\n')}
 </urlset>`;
 
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-  res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400');
-  res.end(xml);
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400');
+    res.end(xml);
+  } catch (err: any) {
+    console.error('[Sitemap Handler Error]:', err);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end('Error generating sitemap');
+    }
+  }
 }

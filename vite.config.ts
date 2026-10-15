@@ -7,7 +7,7 @@ import {
   SHOPIFY_API_VERSION,
   SERVER_GRAPHQL_OPERATIONS,
   validateOperationVariables,
-} from './api/_operations';
+} from './api/shopify';
 
 const REQUIRED_STORE_DOMAIN = 'sx71id-uy.myshopify.com';
 const MAX_BODY_SIZE_BYTES = 64 * 1024;

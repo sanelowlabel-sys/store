@@ -470,13 +470,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white text-black flex flex-col font-['Plus_Jakarta_Sans',sans-serif] selection:bg-red-600 selection:text-white">
-      {/* Initial load feel */}
+      {/* Initial load feel - minimal without text */}
       {isInitialLoading && (
-        <MerchLoader
-          message="SANELOW STOREFRONT"
-          submessage={`Connecting to ${SHOPIFY_STORE_DOMAIN} Storefront API...`}
-          fullscreen={true}
-        />
+        <MerchLoader fullscreen={true} />
       )}
 
       {/* Shopify Setup / Connection Status Banner */}
@@ -521,6 +517,7 @@ export default function App() {
           setSearchQuery(q);
           if (route.view !== 'home') navigateTo('/');
         }}
+        isLoading={pageLoading || isRefreshingCatalog}
       />
 
       {/* ROUTE 1: Dedicated Product Detail Page (/products/{handle}) */}
@@ -528,7 +525,7 @@ export default function App() {
         <main className="flex-1 w-full">
           {pageLoading ? (
             <div className="py-24 text-center">
-              <MerchLoader message="LOADING PIECE" submessage="Fetching real-time Shopify variant details..." />
+              <MerchLoader fullscreen={false} />
             </div>
           ) : pageNotFound || !activeProductPage ? (
             <div className="py-24 text-center max-w-md mx-auto space-y-4 px-4">
@@ -564,7 +561,7 @@ export default function App() {
         <main className="flex-1 w-full">
           {pageLoading ? (
             <div className="py-24 text-center">
-              <MerchLoader message="LOADING COLLECTION" submessage="Retrieving Shopify collection catalogue..." />
+              <MerchLoader fullscreen={false} />
             </div>
           ) : pageNotFound || !activeCollectionPage ? (
             <div className="py-24 text-center max-w-md mx-auto space-y-4 px-4">

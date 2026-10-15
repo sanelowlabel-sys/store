@@ -17,6 +17,7 @@ interface NavbarProps {
   onOpenCustomerPortal: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  isLoading?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -33,6 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenCustomerPortal,
   searchQuery,
   onSearchChange,
+  isLoading = false,
 }) => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -50,6 +52,12 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-200 bg-white/95 backdrop-blur-md">
+      {/* Minimal Navigation Loading Indicator Bar without text */}
+      {isLoading && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-red-100 overflow-hidden z-50">
+          <div className="h-full bg-red-600 animate-[shimmer_1s_infinite] w-2/5" />
+        </div>
+      )}
       {/* Top Notice Bar */}
       <div className="bg-black text-white text-[11px] font-mono py-1.5 px-4 text-center tracking-wider flex items-center justify-center gap-3">
         <span className="flex items-center gap-1.5 text-red-500 font-bold">

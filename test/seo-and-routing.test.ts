@@ -13,7 +13,7 @@ import {
   renderFullHtmlDocument,
   escapeXml,
   serializeJsonLd,
-} from '../api/_seo';
+} from '../api/render';
 import vercelConfig from '../vercel.json';
 
 // Helper to create a mock HTTP request and response

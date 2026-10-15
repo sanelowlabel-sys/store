@@ -7,42 +7,34 @@ interface MerchLoaderProps {
 }
 
 export const MerchLoader: React.FC<MerchLoaderProps> = ({
-  message = 'SANELOW MERCHANDISE ARCHIVE',
-  submessage = 'Curating Drop Inventory & Fabric Specs...',
   fullscreen = true,
 }) => {
   const content = (
-    <div className="flex flex-col items-center justify-center p-8 text-center select-none">
-      {/* Brand Monogram / Loading Emblem */}
-      <div className="relative mb-6 flex items-center justify-center">
-        {/* Outer pulsating red ring */}
-        <div className="w-16 h-16 rounded-full border-2 border-red-600/30 border-t-red-600 animate-spin" />
+    <div
+      className="flex flex-col items-center justify-center p-6 text-center select-none"
+      role="status"
+      aria-label="Loading"
+    >
+      {/* Minimal Brand Monogram Spinner - Zero Text */}
+      <div className="relative flex items-center justify-center">
+        {/* Outer subtle rotating red accent ring */}
+        <div className="w-12 h-12 rounded-full border-2 border-zinc-200 border-t-red-600 animate-spin" />
         
         {/* Inner static brand mark */}
-        <div className="absolute inset-0 m-auto w-10 h-10 rounded-lg bg-black flex items-center justify-center shadow-lg">
-          <span className="text-white font-black text-sm tracking-tighter">S</span>
+        <div className="absolute inset-0 m-auto w-7 h-7 rounded-lg bg-black flex items-center justify-center shadow-md">
+          <span className="text-white font-black text-xs tracking-tighter">S</span>
         </div>
 
         {/* Small Red Accent Pulse Dot */}
-        <span className="absolute -top-1 -right-1 flex h-3 w-3">
+        <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600" />
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
         </span>
       </div>
 
-      {/* Typography */}
-      <div className="space-y-1.5 max-w-xs">
-        <div className="text-xs font-mono font-bold tracking-[0.25em] text-black uppercase">
-          {message}
-        </div>
-        <p className="text-xs text-zinc-500 font-medium tracking-wide">
-          {submessage}
-        </p>
-      </div>
-
-      {/* Minimalist Red Micro-Progress Bar */}
-      <div className="w-36 h-0.5 bg-zinc-100 rounded-full mt-5 overflow-hidden">
-        <div className="h-full bg-red-600 rounded-full animate-[shimmer_1.5s_infinite] w-2/3" />
+      {/* Minimal indeterminate micro-bar */}
+      <div className="w-20 h-0.5 bg-zinc-100 rounded-full mt-4 overflow-hidden">
+        <div className="h-full bg-red-600 rounded-full animate-pulse w-full" />
       </div>
     </div>
   );
@@ -51,7 +43,7 @@ export const MerchLoader: React.FC<MerchLoaderProps> = ({
     return (
       <div
         id="global-merch-loader"
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-white/90 backdrop-blur-md transition-opacity duration-300"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-white/80 backdrop-blur-sm transition-opacity duration-200"
       >
         {content}
       </div>
