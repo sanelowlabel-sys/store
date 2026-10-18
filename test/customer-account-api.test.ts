@@ -887,6 +887,181 @@ test('Shopify Customer Account API & Custom Dashboard Specifications', async (t)
     const catResult = await fetchLiveCatalogue();
     assert.equal(typeof catResult.configured, 'boolean');
     assert.ok(Array.isArray(catResult.products));
+
+    // 8. Explicit diagnostic reason codes for Webhook Authentication failures
+    // (a) MISSING_WEBHOOK_SECRET
+    delete process.env.SHOPIFY_WEBHOOK_SECRET;
+    const { req: noSecReq, res: noSecRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-shop-domain': 'sx71id-uy.myshopify.com',
+        'x-shopify-hmac-sha256': validHmac,
+      },
+    });
+    process.nextTick(() => {
+      noSecReq.emit('data', rawBuffer);
+      noSecReq.emit('end');
+    });
+    await webhookHandler(noSecReq, noSecRes);
+    assert.equal(noSecRes.statusCode, 401);
+    const noSecJson = JSON.parse(noSecRes.data);
+    assert.equal(noSecJson.reason, 'MISSING_WEBHOOK_SECRET');
+
+    // Restore secret
+    process.env.SHOPIFY_WEBHOOK_SECRET = testSecret;
+
+    // (b) RAW_BODY_UNAVAILABLE (empty payload / stream ended with 0 bytes)
+    const { req: noBodyReq, res: noBodyRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-shop-domain': 'sx71id-uy.myshopify.com',
+        'x-shopify-hmac-sha256': validHmac,
+      },
+    });
+    process.nextTick(() => {
+      noBodyReq.emit('end');
+    });
+    await webhookHandler(noBodyReq, noBodyRes);
+    assert.equal(noBodyRes.statusCode, 401);
+    const noBodyJson = JSON.parse(noBodyRes.data);
+    assert.equal(noBodyJson.reason, 'RAW_BODY_UNAVAILABLE');
+
+    // (c) MISSING_SIGNATURE
+    const { req: noSigReq, res: noSigRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-shop-domain': 'sx71id-uy.myshopify.com',
+      },
+    });
+    process.nextTick(() => {
+      noSigReq.emit('data', rawBuffer);
+      noSigReq.emit('end');
+    });
+    await webhookHandler(noSigReq, noSigRes);
+    assert.equal(noSigRes.statusCode, 401);
+    const noSigJson = JSON.parse(noSigRes.data);
+    assert.equal(noSigJson.reason, 'MISSING_SIGNATURE');
+
+    // (d) SHOP_DOMAIN_MISMATCH - missing, malformed, URL-shaped, custom storefront, or wrong domain
+    // (d.1) Wrong store domain
+    const { req: badDomainReq, res: badDomainRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-shop-domain': 'unauthorized-shop.myshopify.com',
+        'x-shopify-hmac-sha256': validHmac,
+      },
+    });
+    process.nextTick(() => {
+      badDomainReq.emit('data', rawBuffer);
+      badDomainReq.emit('end');
+    });
+    await webhookHandler(badDomainReq, badDomainRes);
+    assert.equal(badDomainRes.statusCode, 401);
+    const badDomainJson = JSON.parse(badDomainRes.data);
+    assert.equal(badDomainJson.reason, 'SHOP_DOMAIN_MISMATCH');
+
+    // (d.2) Missing x-shopify-shop-domain header
+    const { req: missingDomainReq, res: missingDomainRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-hmac-sha256': validHmac,
+      },
+    });
+    process.nextTick(() => {
+      missingDomainReq.emit('data', rawBuffer);
+      missingDomainReq.emit('end');
+    });
+    await webhookHandler(missingDomainReq, missingDomainRes);
+    assert.equal(missingDomainRes.statusCode, 401);
+    const missingDomainJson = JSON.parse(missingDomainRes.data);
+    assert.equal(missingDomainJson.reason, 'SHOP_DOMAIN_MISMATCH');
+
+    // (d.3) URL-shaped x-shopify-shop-domain (must be rejected)
+    const { req: urlDomainReq, res: urlDomainRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-shop-domain': 'https://sx71id-uy.myshopify.com/',
+        'x-shopify-hmac-sha256': validHmac,
+      },
+    });
+    process.nextTick(() => {
+      urlDomainReq.emit('data', rawBuffer);
+      urlDomainReq.emit('end');
+    });
+    await webhookHandler(urlDomainReq, urlDomainRes);
+    assert.equal(urlDomainRes.statusCode, 401);
+    const urlDomainJson = JSON.parse(urlDomainRes.data);
+    assert.equal(urlDomainJson.reason, 'SHOP_DOMAIN_MISMATCH');
+
+    // (d.4) Custom storefront domain (must be rejected)
+    const { req: customDomainReq, res: customDomainRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-shop-domain': 'shop.sanelowmusiclabel.co.za',
+        'x-shopify-hmac-sha256': validHmac,
+      },
+    });
+    process.nextTick(() => {
+      customDomainReq.emit('data', rawBuffer);
+      customDomainReq.emit('end');
+    });
+    await webhookHandler(customDomainReq, customDomainRes);
+    assert.equal(customDomainRes.statusCode, 401);
+    const customDomainJson = JSON.parse(customDomainRes.data);
+    assert.equal(customDomainJson.reason, 'SHOP_DOMAIN_MISMATCH');
+
+    // (d.5) Valid domain with case normalization (must pass domain check)
+    const { req: caseDomainReq, res: caseDomainRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-shop-domain': 'SX71ID-UY.myshopify.com',
+        'x-shopify-hmac-sha256': validHmac,
+        'x-shopify-webhook-id': 'case_normalized_domain_test_event',
+      },
+    });
+    process.nextTick(() => {
+      caseDomainReq.emit('data', rawBuffer);
+      caseDomainReq.emit('end');
+    });
+    await webhookHandler(caseDomainReq, caseDomainRes);
+    assert.equal(caseDomainRes.statusCode, 200, 'Case-normalized domain must pass');
+
+    // (e) INVALID_SIGNATURE (tampered body or wrong secret)
+    const { req: badSigReq, res: badSigRes } = createMockReqRes({
+      method: 'POST',
+      url: '/api/webhooks/shopify',
+      headers: {
+        'x-shopify-topic': 'products/update',
+        'x-shopify-shop-domain': 'sx71id-uy.myshopify.com',
+        'x-shopify-hmac-sha256': 'dGhpcyBpcyBhbiBpbnZhbGlkIGJhc2U2NCBzaWduYXR1cmUgMzJieXRlcw==',
+      },
+    });
+    process.nextTick(() => {
+      badSigReq.emit('data', rawBuffer);
+      badSigReq.emit('end');
+    });
+    await webhookHandler(badSigReq, badSigRes);
+    assert.equal(badSigRes.statusCode, 401);
+    const badSigJson = JSON.parse(badSigRes.data);
+    assert.equal(badSigJson.reason, 'INVALID_SIGNATURE');
+
+    delete process.env.SHOPIFY_WEBHOOK_SECRET;
   });
 
   // --------------------------------------------------------------------------

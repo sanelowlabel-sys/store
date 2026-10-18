@@ -38,31 +38,166 @@ export function resetInMemoryCatalogueVersionForTest(): void {
   seenWebhookIdsInMemory.clear();
 }
 
+// Disable Vercel automatic body parsing so the raw request body stream is preserved for exact HMAC validation
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+/**
+ * Helper to normalize shop domain strings for safe comparison (case normalization only).
+ */
+export function normalizeShopDomain(domain?: string | null): string {
+  if (!domain) return '';
+  return domain.trim().toLowerCase();
+}
+
+/**
+ * Strict shop domain validation for incoming Shopify webhooks.
+ * Requires x-shopify-shop-domain to be present and match REQUIRED_STORE_DOMAIN (sx71id-uy.myshopify.com)
+ * exactly, allowing case normalization only.
+ * Rejects missing, malformed, URL-shaped, path-containing, port-containing, or different domains.
+ */
+export function isValidShopDomain(domainHeader?: string | null): boolean {
+  if (!domainHeader) return false;
+  const trimmed = domainHeader.trim();
+  if (!trimmed) return false;
+
+  // Reject URL-shaped, scheme-prefixed, path-containing, or port-containing strings
+  if (
+    trimmed.includes('/') ||
+    trimmed.includes(':') ||
+    trimmed.includes('?') ||
+    trimmed.includes('#') ||
+    trimmed.includes('@') ||
+    /\s/.test(trimmed)
+  ) {
+    return false;
+  }
+
+  // Exact match allowing case normalization only
+  return trimmed.toLowerCase() === REQUIRED_STORE_DOMAIN.toLowerCase();
+}
+
+/**
+ * Case-insensitive header retrieval helper.
+ */
+export function getHeaderValue(
+  headers: IncomingMessage['headers'] | Record<string, any> | undefined,
+  headerName: string
+): string {
+  if (!headers) return '';
+  const target = headerName.toLowerCase();
+  for (const [key, val] of Object.entries(headers)) {
+    if (key.toLowerCase() === target) {
+      if (Array.isArray(val)) return (val[0] || '').trim();
+      return typeof val === 'string' ? val.trim() : String(val || '').trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Extracts raw request body bytes without triggering premature body parsing.
+ * In Vercel Node Serverless environment, accessing `req.body` directly activates a getter
+ * that consumes the stream and parses JSON. Stream reading must be performed first.
+ * Never uses JSON.stringify(req.body) as object serialization alters whitespace,
+ * key order, and unicode escapes, destroying HMAC validity.
+ */
+export async function extractRawRequestBody(
+  req: IncomingMessage,
+  maxSizeBytes: number = 1024 * 1024
+): Promise<{ rawBody: Buffer | null; reason?: string }> {
+  const reqAny = req as any;
+
+  // 1. Direct raw body buffer already attached by runtime/middleware
+  if (reqAny.rawBody) {
+    if (Buffer.isBuffer(reqAny.rawBody)) {
+      return { rawBody: reqAny.rawBody };
+    }
+    if (typeof reqAny.rawBody === 'string') {
+      return { rawBody: Buffer.from(reqAny.rawBody, 'utf8') };
+    }
+  }
+
+  // 2. Read incoming request stream directly if not ended.
+  // Note: We check req.readableEnded BEFORE touching req.body to avoid triggering Vercel's lazy parser.
+  if (!req.readableEnded && typeof req.on === 'function') {
+    try {
+      const chunks: Buffer[] = [];
+      let totalLength = 0;
+      await new Promise<void>((resolve, reject) => {
+        req.on('data', (chunk: any) => {
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          totalLength += buf.length;
+          if (totalLength > maxSizeBytes) {
+            reject(new Error('PAYLOAD_TOO_LARGE'));
+            return;
+          }
+          chunks.push(buf);
+        });
+        req.on('end', () => resolve());
+        req.on('error', (err) => reject(err));
+      });
+
+      if (chunks.length > 0) {
+        return { rawBody: Buffer.concat(chunks) };
+      }
+    } catch (err: any) {
+      if (err?.message === 'PAYLOAD_TOO_LARGE') {
+        return { rawBody: null, reason: 'PAYLOAD_TOO_LARGE' };
+      }
+    }
+  }
+
+  // 3. Fallback only if stream was already ended: check if body is Buffer or raw string
+  if (reqAny.body) {
+    if (Buffer.isBuffer(reqAny.body)) {
+      return { rawBody: reqAny.body };
+    }
+    if (typeof reqAny.body === 'string') {
+      return { rawBody: Buffer.from(reqAny.body, 'utf8') };
+    }
+  }
+
+  return { rawBody: null };
+}
+
 /**
  * Validates Shopify HMAC-SHA256 signature against the raw request body.
  * Constant-time comparison prevents timing attacks.
+ * Decodes the header as Base64 into a 32-byte binary digest and enforces strict length check
+ * before timingSafeEqual to avoid RangeError and timing side channels.
  */
 export function verifyShopifyWebhookHmac(
   rawBody: Buffer,
   hmacHeader?: string | null,
   secret?: string | null
 ): boolean {
-  if (!hmacHeader || !secret) return false;
+  if (!hmacHeader || !secret || !rawBody || rawBody.length === 0) return false;
 
   try {
-    const generatedHmac = crypto
-      .createHmac('sha256', secret)
+    const trimmedHeader = hmacHeader.trim();
+    const cleanSecret = secret.replace(/^["']|["']$/g, '').trim();
+    if (!trimmedHeader || !cleanSecret) return false;
+
+    // Generated 32-byte binary SHA-256 HMAC digest
+    const generatedDigest = crypto
+      .createHmac('sha256', cleanSecret)
       .update(rawBody)
-      .digest('base64');
+      .digest(); // 32 bytes Buffer
 
-    const generatedBuf = Buffer.from(generatedHmac, 'utf8');
-    const headerBuf = Buffer.from(hmacHeader.trim(), 'utf8');
+    // Decode provided Base64 signature
+    const headerDigest = Buffer.from(trimmedHeader, 'base64');
 
-    if (generatedBuf.length !== headerBuf.length) {
+    // SHA-256 binary digests MUST be exactly 32 bytes (256 bits).
+    // An equal-length check is strictly required before timingSafeEqual to prevent RangeErrors.
+    if (headerDigest.length !== 32 || generatedDigest.length !== 32) {
       return false;
     }
 
-    return crypto.timingSafeEqual(generatedBuf, headerBuf);
+    return crypto.timingSafeEqual(generatedDigest, headerDigest);
   } catch {
     return false;
   }
@@ -312,79 +447,107 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  // Stream raw request body into buffer for HMAC verification
-  let rawBody: Buffer;
-  const MAX_WEBHOOK_SIZE = 1024 * 1024; // 1 MB safety limit
+  // Extract headers sent by Shopify (case-insensitive)
+  const topic = getHeaderValue(req.headers, 'x-shopify-topic');
+  const hmacHeader = getHeaderValue(req.headers, 'x-shopify-hmac-sha256');
+  const shopDomainHeader = getHeaderValue(req.headers, 'x-shopify-shop-domain');
+  const webhookId = getHeaderValue(req.headers, 'x-shopify-webhook-id');
 
-  if ((req as any).rawBody && Buffer.isBuffer((req as any).rawBody)) {
-    rawBody = (req as any).rawBody;
-  } else if ((req as any).body) {
-    const b = (req as any).body;
-    rawBody = Buffer.isBuffer(b) ? b : Buffer.from(typeof b === 'string' ? b : JSON.stringify(b));
-  } else if (typeof (req as any)[Symbol.asyncIterator] === 'function') {
-    const chunks: Buffer[] = [];
-    let totalLength = 0;
-    for await (const chunk of req) {
-      totalLength += chunk.length;
-      if (totalLength > MAX_WEBHOOK_SIZE) {
-        res.statusCode = 413;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: 'Payload too large' }));
-        return;
-      }
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    rawBody = Buffer.concat(chunks);
-  } else {
-    // Event-based stream fallback
-    rawBody = await new Promise<Buffer>((resolve) => {
-      const chunks: Buffer[] = [];
-      let totalLength = 0;
-      req.on('data', (c: any) => {
-        const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
-        totalLength += buf.length;
-        if (totalLength <= MAX_WEBHOOK_SIZE) {
-          chunks.push(buf);
-        }
-      });
-      req.on('end', () => resolve(Buffer.concat(chunks)));
-    });
-  }
-
-  // Headers sent by Shopify
-  const topic = (req.headers['x-shopify-topic'] as string) || '';
-  const hmacHeader = (req.headers['x-shopify-hmac-sha256'] as string) || '';
-  const shopDomain = (req.headers['x-shopify-shop-domain'] as string) || '';
-  const webhookId = (req.headers['x-shopify-webhook-id'] as string) || '';
-
-  // Validate Store Domain
-  if (shopDomain && shopDomain.toLowerCase() !== REQUIRED_STORE_DOMAIN) {
-    res.statusCode = 401;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: 'UNAUTHORIZED_SHOP_DOMAIN' }));
-    return;
-  }
-
-  // Validate HMAC signature
-  const webhookSecret = process.env.SHOPIFY_WEBHOOK_SECRET;
+  // 1. Diagnostic Check: Webhook Signing Secret Configuration
+  const rawSecret = process.env.SHOPIFY_WEBHOOK_SECRET;
+  const webhookSecret = rawSecret ? rawSecret.replace(/^["']|["']$/g, '').trim() : '';
   if (!webhookSecret) {
-    // If webhook secret is not configured, reject gracefully
-    res.statusCode = 503;
+    console.warn('[Webhook Auth Diagnostic]: reason=MISSING_WEBHOOK_SECRET secretConfigured=false');
+    res.statusCode = 401;
     res.setHeader('Content-Type', 'application/json');
     res.end(
       JSON.stringify({
-        error: 'WEBHOOK_SECRET_NOT_CONFIGURED',
-        message: 'SHOPIFY_WEBHOOK_SECRET must be configured in Vercel to receive webhooks.',
+        error: 'UNAUTHORIZED',
+        reason: 'MISSING_WEBHOOK_SECRET',
+        message: 'SHOPIFY_WEBHOOK_SECRET is not configured on the server.',
       })
     );
     return;
   }
 
-  const isValid = verifyShopifyWebhookHmac(rawBody, hmacHeader, webhookSecret);
-  if (!isValid) {
+  // 2. Extract exact original raw bytes (never JSON.stringify(req.body))
+  // Diagnostic Check: Raw Body Availability
+  const { rawBody, reason: bodyExtractionReason } = await extractRawRequestBody(req, 1024 * 1024);
+  if (bodyExtractionReason === 'PAYLOAD_TOO_LARGE') {
+    res.statusCode = 413;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: 'Payload too large' }));
+    return;
+  }
+
+  if (!rawBody || rawBody.length === 0) {
+    console.warn(
+      `[Webhook Auth Diagnostic]: reason=RAW_BODY_UNAVAILABLE rawBodyAvailable=false streamEnded=${Boolean(req.readableEnded)} hasParsedBody=${Boolean((req as any).body)}`
+    );
     res.statusCode = 401;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: 'HMAC_VERIFICATION_FAILED' }));
+    res.end(
+      JSON.stringify({
+        error: 'UNAUTHORIZED',
+        reason: 'RAW_BODY_UNAVAILABLE',
+        message: 'Original raw request body was unavailable for HMAC verification.',
+      })
+    );
+    return;
+  }
+
+  // 3. Diagnostic Check: Missing Signature Header
+  if (!hmacHeader) {
+    console.warn('[Webhook Auth Diagnostic]: reason=MISSING_SIGNATURE hasHmacHeader=false');
+    res.statusCode = 401;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        error: 'UNAUTHORIZED',
+        reason: 'MISSING_SIGNATURE',
+        message: 'Missing x-shopify-hmac-sha256 header.',
+      })
+    );
+    return;
+  }
+
+  // 4. Diagnostic Check: Shop Domain Validation
+  // x-shopify-shop-domain must be present and match sx71id-uy.myshopify.com exactly (case-insensitive).
+  // Rejects missing, malformed, URL-shaped, custom storefront, or environment-fallback domains.
+  const isDomainValid = isValidShopDomain(shopDomainHeader);
+  if (!isDomainValid) {
+    console.warn(
+      `[Webhook Auth Diagnostic]: reason=SHOP_DOMAIN_MISMATCH domainMatched=false domainPresent=${Boolean(
+        shopDomainHeader && shopDomainHeader.trim()
+      )}`
+    );
+    res.statusCode = 401;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        error: 'UNAUTHORIZED',
+        reason: 'SHOP_DOMAIN_MISMATCH',
+        message: 'x-shopify-shop-domain header is required and must match sx71id-uy.myshopify.com exactly.',
+      })
+    );
+    return;
+  }
+
+  // 5. Diagnostic Check: Signature Verification
+  const isValid = verifyShopifyWebhookHmac(rawBody, hmacHeader, webhookSecret);
+  if (!isValid) {
+    console.warn(
+      '[Webhook Auth Diagnostic]: reason=INVALID_SIGNATURE secretConfigured=true rawBodyAvailable=true hmacHeaderPresent=true'
+    );
+    res.statusCode = 401;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        error: 'UNAUTHORIZED',
+        reason: 'INVALID_SIGNATURE',
+        message: 'HMAC signature verification failed against raw request body.',
+      })
+    );
     return;
   }
 
