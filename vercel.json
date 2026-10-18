@@ -21,6 +21,18 @@
       "destination": "/api/render?type=collection&handle=:handle"
     },
     {
+      "source": "/api/auth/:action",
+      "destination": "/api/auth?action=:action"
+    },
+    {
+      "source": "/api/customer/:action",
+      "destination": "/api/customer?action=:action"
+    },
+    {
+      "source": "/api/webhooks/shopify",
+      "destination": "/api/webhook"
+    },
+    {
       "source": "/((?!api/|.*\\.[\\w]+$).*)",
       "destination": "/index.html"
     }

@@ -13,6 +13,7 @@ import { Footer } from './components/Footer';
 import { FaqModal } from './components/FaqModal';
 import { TrackOrderModal } from './components/TrackOrderModal';
 import { CustomerPortalModal } from './components/CustomerPortalModal';
+import { CustomerDashboard } from './components/CustomerDashboard';
 import { MerchLoader } from './components/MerchLoader';
 import { ShopifySetupBanner } from './components/ShopifySetupBanner';
 
@@ -22,6 +23,7 @@ import {
   ShopifyCart,
   ShopifyVariant,
   ShopifyCollection,
+  CustomerSession,
 } from './types';
 import {
   fetchLiveCatalogue,
@@ -32,8 +34,10 @@ import {
   updateLineInCart,
   removeLineFromCart,
   applyDiscountToCart,
+  fetchCustomerSession,
   SHOPIFY_STORE_DOMAIN,
   SHOPIFY_CUSTOMER_ACCOUNT_URL,
+  ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
   DEFAULT_CURRENCY,
 } from './lib/shopify';
 
@@ -48,8 +52,10 @@ import {
 } from 'lucide-react';
 
 interface RouteState {
-  view: 'home' | 'product' | 'collection';
+  view: 'home' | 'product' | 'collection' | 'account';
   handle?: string;
+  accountSection?: 'overview' | 'orders' | 'order-detail' | 'profile';
+  orderId?: string;
 }
 
 function parseUrlRoute(): RouteState {
@@ -59,6 +65,13 @@ function parseUrlRoute(): RouteState {
   if (prodMatch) return { view: 'product', handle: prodMatch[1] };
   const colMatch = pathname.match(/^\/collections\/([a-zA-Z0-9_\-]+)/);
   if (colMatch) return { view: 'collection', handle: colMatch[1] };
+
+  const orderDetailMatch = pathname.match(/^\/account\/orders\/([a-zA-Z0-9_\-:]+)/);
+  if (orderDetailMatch) return { view: 'account', accountSection: 'order-detail', orderId: orderDetailMatch[1] };
+  if (pathname === '/account/orders' || pathname.startsWith('/account/orders')) return { view: 'account', accountSection: 'orders' };
+  if (pathname === '/account/profile' || pathname.startsWith('/account/profile')) return { view: 'account', accountSection: 'profile' };
+  if (pathname === '/account' || pathname.startsWith('/account')) return { view: 'account', accountSection: 'overview' };
+
   return { view: 'home' };
 }
 
@@ -79,6 +92,7 @@ export default function App() {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isRefreshingCatalog, setIsRefreshingCatalog] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [isCatalogueTruncated, setIsCatalogueTruncated] = useState(false);
 
   // Shopify Cart State
   const [shopifyCart, setShopifyCart] = useState<ShopifyCart | null>(null);
@@ -102,6 +116,15 @@ export default function App() {
   const [isCustomerPortalOpen, setIsCustomerPortalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
+  // Authenticated Shopify Customer Session State
+  const [customerSession, setCustomerSession] = useState<CustomerSession | null>(null);
+
+  useEffect(() => {
+    fetchCustomerSession().then((sess) => {
+      setCustomerSession(sess);
+    }).catch(() => {});
+  }, []);
+
   // Browser-Local Wishlist
   const [wishlist, setWishlist] = useState<Product[]>(() => {
     try {
@@ -116,6 +139,7 @@ export default function App() {
   const catalogRef = useRef<HTMLDivElement>(null);
   const lastFetchTimeRef = useRef<number>(0);
   const backoffDelayRef = useRef<number>(60000); // 60s base
+  const catalogueVersionRef = useRef<number | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -130,15 +154,6 @@ export default function App() {
       window.history.pushState({}, '', path);
     }
     setRoute(parseUrlRoute());
-  }, []);
-
-  // Listen to browser popstate (back / forward)
-  useEffect(() => {
-    const handlePopState = () => {
-      setRoute(parseUrlRoute());
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   // 1. Fetch live catalogue from Shopify
@@ -162,6 +177,7 @@ export default function App() {
         setIsConfigured(true);
         setCatalogError(null);
         setProducts(result.products);
+        setIsCatalogueTruncated(Boolean(result.isTruncated));
         setLastSyncedAt(new Date());
         backoffDelayRef.current = 60000;
       }
@@ -172,6 +188,26 @@ export default function App() {
       setIsInitialLoading(false);
     }
   }, []);
+
+  // Check server-side catalogue version (triggered by Shopify webhooks)
+  const checkCatalogueVersion = useCallback(async () => {
+    try {
+      const res = await fetch('/api/webhooks/shopify', { signal: AbortSignal.timeout(3500) });
+      if (res.ok) {
+        const json = await res.json();
+        if (typeof json.version === 'number') {
+          if (catalogueVersionRef.current !== null && json.version > catalogueVersionRef.current) {
+            catalogueVersionRef.current = json.version;
+            loadLiveProducts(true);
+            return;
+          }
+          catalogueVersionRef.current = json.version;
+        }
+      }
+    } catch {
+      // Non-blocking background check
+    }
+  }, [loadLiveProducts]);
 
   // 2. Fetch or initialize Shopify Cart
   const loadCart = useCallback(async () => {
@@ -225,11 +261,30 @@ export default function App() {
           document.title = 'Collection Not Found | Sanelow Merchant Store';
         }
       });
+    } else if (route.view === 'account') {
+      setActiveProductPage(null);
+      setActiveCollectionPage(null);
+      setPageNotFound(false);
+      document.title = 'Customer Account & Orders | Sanelow Merchant Store';
+
+      // Exclude customer account views from search indexing
+      let metaRobots = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+      if (!metaRobots) {
+        metaRobots = document.createElement('meta');
+        metaRobots.name = 'robots';
+        document.head.appendChild(metaRobots);
+      }
+      metaRobots.content = 'noindex, nofollow';
     } else {
       setActiveProductPage(null);
       setActiveCollectionPage(null);
       setPageNotFound(false);
       document.title = 'Sanelow Merchant Store | Official Streetwear & Merch';
+
+      const metaRobots = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+      if (metaRobots) {
+        metaRobots.content = 'index, follow';
+      }
     }
   }, [route, products]);
 
@@ -256,10 +311,11 @@ export default function App() {
     return () => clearTimeout(timerId);
   }, [loadLiveProducts]);
 
-  // Tab visibility & focus change: re-fetch if tab becomes active and stale (>15s)
+  // Tab visibility & focus change: re-fetch if tab becomes active and stale (>15s) or version changed
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        checkCatalogueVersion();
         const timeSinceLastFetch = Date.now() - lastFetchTimeRef.current;
         if (timeSinceLastFetch > 15000) {
           loadLiveProducts(true);
@@ -268,6 +324,7 @@ export default function App() {
     };
 
     const handleFocus = () => {
+      checkCatalogueVersion();
       const timeSinceLastFetch = Date.now() - lastFetchTimeRef.current;
       if (timeSinceLastFetch > 25000) {
         loadLiveProducts(true);
@@ -281,7 +338,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [loadLiveProducts]);
+  }, [loadLiveProducts, checkCatalogueVersion]);
 
   // Save wishlist to local storage
   useEffect(() => {
@@ -509,11 +566,21 @@ export default function App() {
         cartCount={cartTotalQuantity}
         cartTotalAmount={cartTotalAmount}
         wishlistCount={wishlist.length}
-        onOpenCart={() => setIsCartOpen(true)}
+        onOpenCart={() => {
+          setIsCartOpen(true);
+          loadCart();
+        }}
         onOpenWishlist={() => setIsWishlistOpen(true)}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomerPortal={() => setIsCustomerPortalOpen(true)}
         customerAccountUrl={SHOPIFY_CUSTOMER_ACCOUNT_URL}
+        onNavigateAccount={(section) => {
+          if (section === 'orders') navigateTo('/account/orders');
+          else if (section === 'profile') navigateTo('/account/profile');
+          else navigateTo('/account');
+        }}
+        isCustomAccountsEnabled={ENABLE_CUSTOM_CUSTOMER_ACCOUNTS}
+        customerSession={customerSession}
         searchQuery={searchQuery}
         onSearchChange={(q) => {
           setSearchQuery(q);
@@ -553,6 +620,17 @@ export default function App() {
               onToggleWishlist={handleToggleWishlist}
               onAddToCart={handleAddToCart}
               onBackToCatalogue={() => navigateTo('/')}
+              onRetryVariants={() => {
+                if (route.handle) {
+                  setPageLoading(true);
+                  fetchProductByHandle(route.handle).then((res) => {
+                    setPageLoading(false);
+                    if (res.product) {
+                      setActiveProductPage(res.product);
+                    }
+                  });
+                }
+              }}
             />
           )}
         </main>
@@ -595,7 +673,19 @@ export default function App() {
         </main>
       )}
 
-      {/* ROUTE 3: Homepage Catalogue */}
+      {/* ROUTE 3: Dedicated Customer Account Dashboard (/account, /account/orders, /account/profile) */}
+      {route.view === 'account' && (
+        <main className="flex-1 w-full">
+          <CustomerDashboard
+            initialTab={route.accountSection || 'overview'}
+            initialOrderId={route.orderId}
+            onNavigateHome={() => navigateTo('/')}
+            currency={currency}
+          />
+        </main>
+      )}
+
+      {/* ROUTE 4: Homepage Catalogue */}
       {route.view === 'home' && (
         <>
           {/* Hero Banner */}
@@ -657,6 +747,12 @@ export default function App() {
                     <span className="underline">Sync</span>
                   </button>
                 </div>
+                {isCatalogueTruncated && (
+                  <div className="mt-2.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 font-mono flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
+                    <span>Incomplete results notice: Safety ceiling of 1,000 products reached. Catalogue display is limited to the first 1,000 items.</span>
+                  </div>
+                )}
               </div>
 
               {/* Filters & Sorting */}

@@ -6,10 +6,16 @@ import {
   Category,
   ProductColor,
   ShopifyCollection,
+  CustomerAccountOrder,
+  CustomerProfile,
+  CustomerSession,
+  CustomerOrdersPage,
 } from '../types';
 
 export const SHOPIFY_STORE_DOMAIN =
-  import.meta.env.VITE_SHOPIFY_STORE_DOMAIN || 'sx71id-uy.myshopify.com';
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SHOPIFY_STORE_DOMAIN) ||
+  (typeof process !== 'undefined' && (process.env?.SHOPIFY_STORE_DOMAIN || process.env?.VITE_SHOPIFY_STORE_DOMAIN)) ||
+  'sx71id-uy.myshopify.com';
 
 // Configurable Shopify Hosted Customer Account URL (from Shopify Admin -> Settings -> Customer accounts)
 // Do NOT invent or infer an account URL from the storefront domain.
@@ -19,11 +25,29 @@ export const SHOPIFY_CUSTOMER_ACCOUNT_URL: string = (
   ''
 ).trim();
 
-export const DEFAULT_COUNTRY =
-  (import.meta.env.VITE_DEFAULT_COUNTRY_CODE || 'ZA').toUpperCase();
+// Feature flag controlling custom Customer Account API dashboard rollout
+export const ENABLE_CUSTOM_CUSTOMER_ACCOUNTS: boolean = (
+  (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_ENABLE_CUSTOM_CUSTOMER_ACCOUNTS || import.meta.env?.ENABLE_CUSTOM_CUSTOMER_ACCOUNTS)) ||
+  (typeof process !== 'undefined' && (process.env?.ENABLE_CUSTOM_CUSTOMER_ACCOUNTS || process.env?.VITE_ENABLE_CUSTOM_CUSTOMER_ACCOUNTS)) ||
+  'false'
+).toString() === 'true';
+
+export const SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID: string = (
+  (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID || import.meta.env?.SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID)) ||
+  (typeof process !== 'undefined' && (process.env?.SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID || process.env?.VITE_SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID)) ||
+  ''
+).trim();
+
+export const DEFAULT_COUNTRY = (
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEFAULT_COUNTRY_CODE) ||
+  (typeof process !== 'undefined' && (process.env?.DEFAULT_COUNTRY_CODE || process.env?.VITE_DEFAULT_COUNTRY_CODE)) ||
+  'ZA'
+).toUpperCase();
 
 export const DEFAULT_CURRENCY =
-  import.meta.env.VITE_DEFAULT_CURRENCY || 'ZAR';
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEFAULT_CURRENCY) ||
+  (typeof process !== 'undefined' && (process.env?.DEFAULT_CURRENCY || process.env?.VITE_DEFAULT_CURRENCY)) ||
+  'ZAR';
 
 const CART_STORAGE_KEY = 'sanelow_shopify_cart_id';
 
@@ -48,6 +72,12 @@ export function formatPrice(amount: number | string, currency: string = DEFAULT_
   }
 }
 
+let customShopifyFetch: any = null;
+
+export function setCustomShopifyFetchForTest(fn: any) {
+  customShopifyFetch = fn;
+}
+
 // Low-level caller: routes operations exclusively through the secure /api/shopify serverless proxy.
 // The browser sends { operation, variables } - never raw GraphQL queries.
 export async function shopifyFetch<T>({
@@ -57,6 +87,9 @@ export async function shopifyFetch<T>({
   operation: string;
   variables?: Record<string, unknown>;
 }): Promise<{ data?: T; errors?: any[]; configured: boolean; message?: string }> {
+  if (customShopifyFetch) {
+    return customShopifyFetch({ operation, variables });
+  }
   try {
     const proxyResponse = await fetch('/api/shopify', {
       method: 'POST',
@@ -142,6 +175,7 @@ function getColorHex(colorName: string): string {
 
 // Map Shopify GraphQL node to clean Product
 export function transformShopifyProduct(node: any): Product {
+  const variantsTruncated = Boolean(node.variants?.pageInfo?.hasNextPage);
   const variants: ShopifyVariant[] = (node.variants?.edges || []).map((e: any) => ({
     id: e.node.id,
     title: e.node.title,
@@ -236,6 +270,7 @@ export function transformShopifyProduct(node: any): Product {
     discountPercent,
     availableForSale: Boolean(node.availableForSale),
     totalVariantsCount: variants.length,
+    variantsTruncated,
     badge,
     isPreOrder: badge === 'PRE-ORDER',
     description: node.description || 'Authentic Sanelow merchandise piece.',
@@ -253,39 +288,80 @@ export function transformShopifyProduct(node: any): Product {
   };
 }
 
-// Fetch live catalogue using server-owned GetProducts operation
+// Fetch live catalogue using server-owned GetProducts operation with cursor pagination
 export async function fetchLiveCatalogue(): Promise<{
   products: Product[];
   configured: boolean;
   errorMessage?: string;
+  isTruncated?: boolean;
+  totalFetched?: number;
 }> {
-  const result = await shopifyFetch<{ products: { edges: any[] } }>({
-    operation: 'GetProducts',
-    variables: { first: 50 },
-  });
+  const allProducts: Product[] = [];
+  let cursor: string | null = null;
+  let hasNextPage = true;
+  let pageCount = 0;
+  const MAX_PAGES = 10; // Safety guard for up to 1,000 products
 
-  if (!result.configured) {
-    return {
-      products: [],
-      configured: false,
-      errorMessage: result.message,
-    };
+  while (hasNextPage && pageCount < MAX_PAGES) {
+    pageCount++;
+    const variables: Record<string, unknown> = { first: 100 };
+    if (cursor) {
+      variables.after = cursor;
+    }
+
+    const result = await shopifyFetch<{
+      products: {
+        pageInfo?: { hasNextPage: boolean; endCursor: string | null };
+        edges: any[];
+      };
+    }>({
+      operation: 'GetProducts',
+      variables,
+    });
+
+    if (!result.configured) {
+      return {
+        products: [],
+        configured: false,
+        errorMessage: result.message,
+        isTruncated: false,
+        totalFetched: 0,
+      };
+    }
+
+    if (result.errors && result.errors.length > 0) {
+      return {
+        products: allProducts.length > 0 ? allProducts : [],
+        configured: true,
+        errorMessage: result.errors[0]?.message || 'GraphQL error fetching products',
+        isTruncated: false,
+        totalFetched: allProducts.length,
+      };
+    }
+
+    const edges = result.data?.products?.edges || [];
+    for (const e of edges) {
+      if (e?.node) {
+        allProducts.push(transformShopifyProduct(e.node));
+      }
+    }
+
+    const pageInfo = result.data?.products?.pageInfo;
+    hasNextPage = Boolean(pageInfo?.hasNextPage);
+    cursor = pageInfo?.endCursor || null;
+
+    if (!pageInfo || !cursor) {
+      break;
+    }
   }
 
-  if (result.errors && result.errors.length > 0) {
-    return {
-      products: [],
-      configured: true,
-      errorMessage: result.errors[0]?.message || 'GraphQL error fetching products',
-    };
-  }
-
-  const edges = result.data?.products?.edges || [];
-  const products = edges.map((e: any) => transformShopifyProduct(e.node));
+  const isTruncated = Boolean(hasNextPage && pageCount >= MAX_PAGES);
 
   return {
-    products,
+    products: allProducts,
     configured: true,
+    isTruncated,
+    totalFetched: allProducts.length,
   };
 }
 
@@ -294,6 +370,8 @@ export async function fetchProductByHandle(handle: string): Promise<{
   product: Product | null;
   configured: boolean;
   errorMessage?: string;
+  variantsIncomplete?: boolean;
+  incompleteReason?: string;
 }> {
   const result = await shopifyFetch<{ product: any }>({
     operation: 'GetProductByHandle',
@@ -324,9 +402,99 @@ export async function fetchProductByHandle(handle: string): Promise<{
     };
   }
 
+  // Paginate variants so every purchasable option can be selected in the storefront
+  let hasMoreVariants = Boolean(raw.variants?.pageInfo?.hasNextPage);
+  let variantsCursor = raw.variants?.pageInfo?.endCursor;
+  let variantPageCount = 0;
+  const MAX_VARIANT_PAGES = 10; // Supports up to 2,500 variants per product
+  const seenCursors = new Set<string>();
+  let variantsIncomplete = false;
+  let incompleteReason: string | undefined = undefined;
+  let paginationErrorMessage: string | undefined = undefined;
+
+  while (hasMoreVariants) {
+    // 1. Detect missing or empty cursor while hasNextPage is true
+    if (!variantsCursor || typeof variantsCursor !== 'string' || !variantsCursor.trim()) {
+      variantsIncomplete = true;
+      incompleteReason = 'Shopify indicated hasNextPage: true but provided a missing or empty endCursor.';
+      break;
+    }
+
+    // 2. Detect repeated cursor while hasNextPage is true
+    if (seenCursors.has(variantsCursor)) {
+      variantsIncomplete = true;
+      incompleteReason = `Repeated pagination cursor detected (${variantsCursor}) while hasNextPage is true.`;
+      break;
+    }
+    seenCursors.add(variantsCursor);
+
+    // 3. Safety limit check
+    if (variantPageCount >= MAX_VARIANT_PAGES) {
+      variantsIncomplete = true;
+      incompleteReason = `Safety limit reached (${MAX_VARIANT_PAGES * 250} variants) while more variants exist.`;
+      break;
+    }
+
+    variantPageCount++;
+    const nextPage = await shopifyFetch<{ product: any }>({
+      operation: 'GetProductByHandle',
+      variables: { handle, variantsCursor },
+    });
+
+    // Check configured on every pagination request
+    if (!nextPage.configured) {
+      variantsIncomplete = true;
+      incompleteReason = nextPage.message || 'Storefront unconfigured during variant pagination';
+      paginationErrorMessage = incompleteReason;
+      break;
+    }
+
+    // Check GraphQL errors on every pagination request
+    if (nextPage.errors && nextPage.errors.length > 0) {
+      variantsIncomplete = true;
+      incompleteReason = nextPage.errors[0]?.message || 'GraphQL error during variant pagination';
+      paginationErrorMessage = incompleteReason;
+      break;
+    }
+
+    // Check missing product or variants data on every pagination request
+    const nextRaw = nextPage.data?.product;
+    if (!nextRaw || !nextRaw.variants) {
+      variantsIncomplete = true;
+      incompleteReason = 'Missing product or variants data on subsequent pagination page';
+      paginationErrorMessage = incompleteReason;
+      break;
+    }
+
+    const nextEdges = nextRaw.variants.edges;
+    if (Array.isArray(nextEdges) && nextEdges.length > 0) {
+      if (!Array.isArray(raw.variants.edges)) {
+        raw.variants.edges = [];
+      }
+      raw.variants.edges.push(...nextEdges);
+    }
+
+    hasMoreVariants = Boolean(nextRaw.variants.pageInfo?.hasNextPage);
+    variantsCursor = nextRaw.variants.pageInfo?.endCursor;
+  }
+
+  if (raw.variants?.pageInfo) {
+    raw.variants.pageInfo.hasNextPage = hasMoreVariants;
+  }
+
+  const transformed = transformShopifyProduct(raw);
+  if (variantsIncomplete) {
+    transformed.variantsIncomplete = true;
+    transformed.variantsTruncated = true;
+    transformed.incompleteVariantsReason = incompleteReason;
+  }
+
   return {
-    product: transformShopifyProduct(raw),
+    product: transformed,
     configured: true,
+    errorMessage: paginationErrorMessage,
+    variantsIncomplete,
+    incompleteReason,
   };
 }
 
@@ -543,3 +711,228 @@ export async function applyDiscountToCart(
   const userErrors = res.data?.cartDiscountCodesUpdate?.userErrors || [];
   return { cart, userErrors };
 }
+
+// ============================================================================
+// Shopify Customer Account API Client Methods
+// ============================================================================
+
+export function transformCustomerOrder(node: any): CustomerAccountOrder {
+  const lineItems = (node.lineItems?.edges || []).map((e: any) => ({
+    id: e.node?.id || '',
+    title: e.node?.title || 'Sanelow Merch Piece',
+    quantity: typeof e.node?.quantity === 'number' ? e.node.quantity : 1,
+    variantTitle: e.node?.variantTitle || null,
+    price: e.node?.price || { amount: '0.00', currencyCode: DEFAULT_CURRENCY },
+    totalDiscount: e.node?.totalDiscount || undefined,
+    image: e.node?.image ? { url: e.node.image.url, altText: e.node.image.altText || null } : null,
+  }));
+
+  const fulfillments = (node.fulfillments?.edges || []).map((e: any) => ({
+    id: e.node?.id || '',
+    status: e.node?.status || 'UNFULFILLED',
+    latestShipmentStatus: e.node?.latestShipmentStatus || null,
+    estimatedDeliveryAt: e.node?.estimatedDeliveryAt || null,
+    trackingInformation: (e.node?.trackingInformation || []).map((t: any) => ({
+      company: t.company || null,
+      number: t.number || null,
+      url: t.url || null,
+    })),
+  }));
+
+  return {
+    id: node.id || '',
+    name: node.name || (node.number ? `#${node.number}` : 'Order'),
+    number: typeof node.number === 'number' ? node.number : undefined,
+    processedAt: node.processedAt || new Date().toISOString(),
+    financialStatus: node.financialStatus || 'PAID',
+    fulfillmentStatus: node.fulfillmentStatus || 'UNFULFILLED',
+    totalPrice: node.totalPrice || { amount: '0.00', currencyCode: DEFAULT_CURRENCY },
+    subtotal: node.subtotal,
+    totalTax: node.totalTax,
+    totalShipping: node.totalShipping,
+    lineItems,
+    fulfillments,
+  };
+}
+
+export function transformCustomerProfile(raw: any): CustomerProfile {
+  return {
+    id: raw.id || '',
+    firstName: raw.firstName || null,
+    lastName: raw.lastName || null,
+    displayName: raw.displayName || (raw.firstName ? `${raw.firstName} ${raw.lastName || ''}`.trim() : 'Customer'),
+    emailAddress: raw.emailAddress || null,
+    phoneNumber: raw.phoneNumber || null,
+    defaultAddress: raw.defaultAddress || null,
+    addresses: (raw.addresses?.edges || []).map((e: any) => e.node),
+  };
+}
+
+// Fetch session and auth status from server
+export async function fetchCustomerSession(): Promise<CustomerSession> {
+  try {
+    const res = await fetch('/api/auth?action=session', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      return {
+        authenticated: false,
+        configured: Boolean(SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID),
+        enabled: ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
+        hostedFallbackUrl: SHOPIFY_CUSTOMER_ACCOUNT_URL || 'https://shopify.com/79461089448/account',
+      };
+    }
+    return await res.json();
+  } catch {
+    return {
+      authenticated: false,
+      configured: Boolean(SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID),
+      enabled: ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
+      hostedFallbackUrl: SHOPIFY_CUSTOMER_ACCOUNT_URL || 'https://shopify.com/79461089448/account',
+    };
+  }
+}
+
+// Fetch dashboard customer data (profile + first 10 orders)
+export async function fetchCustomerDashboardData(): Promise<{
+  profile: CustomerProfile | null;
+  orders: CustomerAccountOrder[];
+  error?: string;
+  sessionExpired?: boolean;
+}> {
+  try {
+    const res = await fetch('/api/customer?action=dashboard', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+
+    if (res.status === 401) {
+      return { profile: null, orders: [], sessionExpired: true };
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { profile: null, orders: [], error: err.message || 'Failed to load customer dashboard.' };
+    }
+
+    const json = await res.json();
+    const rawCustomer = json.data?.customer;
+    if (!rawCustomer) {
+      return { profile: null, orders: [], error: 'No customer data returned.' };
+    }
+
+    const profile = transformCustomerProfile(rawCustomer);
+    const orders = (rawCustomer.orders?.edges || []).map((e: any) => transformCustomerOrder(e.node));
+
+    return { profile, orders };
+  } catch (err: any) {
+    return { profile: null, orders: [], error: err?.message || 'Error communicating with server.' };
+  }
+}
+
+// Fetch paginated customer orders
+export async function fetchCustomerOrdersList(
+  cursor?: string,
+  direction?: 'next' | 'prev'
+): Promise<CustomerOrdersPage & { error?: string; sessionExpired?: boolean }> {
+  try {
+    const params = new URLSearchParams({ action: 'orders' });
+    if (cursor) params.set('cursor', cursor);
+    if (direction) params.set('direction', direction);
+
+    const res = await fetch(`/api/customer?${params.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+
+    if (res.status === 401) {
+      return {
+        orders: [],
+        pageInfo: { hasNextPage: false, hasPreviousPage: false },
+        sessionExpired: true,
+      };
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return {
+        orders: [],
+        pageInfo: { hasNextPage: false, hasPreviousPage: false },
+        error: err.message || 'Failed to load orders.',
+      };
+    }
+
+    const json = await res.json();
+    const rawOrders = json.data?.customer?.orders;
+    const orders = (rawOrders?.edges || []).map((e: any) => transformCustomerOrder(e.node));
+    const pageInfo = rawOrders?.pageInfo || { hasNextPage: false, hasPreviousPage: false };
+
+    return { orders, pageInfo };
+  } catch (err: any) {
+    return {
+      orders: [],
+      pageInfo: { hasNextPage: false, hasPreviousPage: false },
+      error: err?.message || 'Error connecting to orders service.',
+    };
+  }
+}
+
+// Fetch customer profile & addresses
+export async function fetchCustomerProfileData(): Promise<{
+  profile: CustomerProfile | null;
+  error?: string;
+  sessionExpired?: boolean;
+}> {
+  try {
+    const res = await fetch('/api/customer?action=profile', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+
+    if (res.status === 401) {
+      return { profile: null, sessionExpired: true };
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { profile: null, error: err.message || 'Failed to load profile.' };
+    }
+
+    const json = await res.json();
+    const rawCustomer = json.data?.customer;
+    if (!rawCustomer) {
+      return { profile: null, error: 'Customer profile not found.' };
+    }
+
+    return { profile: transformCustomerProfile(rawCustomer) };
+  } catch (err: any) {
+    return { profile: null, error: err?.message || 'Error communicating with profile service.' };
+  }
+}
+
+// Log customer out
+export async function logoutCustomer(): Promise<{ success: boolean; logoutUrl?: string }> {
+  try {
+    const res = await fetch('/api/auth?action=logout', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'x-requested-with': 'XMLHttpRequest',
+      },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return { success: true, logoutUrl: data.logoutUrl };
+    }
+  } catch {
+    // Ignore error
+  }
+  return { success: true, logoutUrl: '/account' };
+}
+

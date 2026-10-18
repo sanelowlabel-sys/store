@@ -101,9 +101,14 @@ export const CART_FRAGMENT = `
 
 export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
   GetProducts: `
-    query GetProducts($first: Int!) @inContext(country: ZA) {
-      products(first: $first) {
+    query GetProducts($first: Int!, $after: String) @inContext(country: ZA) {
+      products(first: $first, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         edges {
+          cursor
           node {
             id
             title
@@ -143,7 +148,11 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
               name
               values
             }
-            variants(first: 50) {
+            variants(first: 100) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
               edges {
                 node {
                   id
@@ -169,7 +178,7 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
                 }
               }
             }
-            collections(first: 5) {
+            collections(first: 10) {
               edges {
                 node {
                   id
@@ -185,7 +194,7 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
   `,
 
   GetProductByHandle: `
-    query GetProductByHandle($handle: String!) @inContext(country: ZA) {
+    query GetProductByHandle($handle: String!, $variantsCursor: String) @inContext(country: ZA) {
       product(handle: $handle) {
         id
         title
@@ -227,7 +236,11 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
           name
           values
         }
-        variants(first: 50) {
+        variants(first: 250, after: $variantsCursor) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
           edges {
             node {
               id
@@ -253,7 +266,7 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
             }
           }
         }
-        collections(first: 5) {
+        collections(first: 10) {
           edges {
             node {
               id
@@ -501,7 +514,14 @@ export function validateOperationVariables(
       if (typeof first !== 'number' || !Number.isInteger(first) || first < 1 || first > 100) {
         return { valid: false, error: 'GetProducts "first" must be an integer between 1 and 100.' };
       }
-      return { valid: true, sanitizedVariables: { first } };
+      const sanitized: Record<string, any> = { first };
+      if (vars.after !== undefined && vars.after !== null) {
+        if (typeof vars.after !== 'string' || !vars.after.trim() || vars.after.length > 255) {
+          return { valid: false, error: 'GetProducts "after" must be a valid non-empty string cursor.' };
+        }
+        sanitized.after = vars.after.trim();
+      }
+      return { valid: true, sanitizedVariables: sanitized };
     }
 
     case 'GetProductByHandle': {
@@ -512,7 +532,14 @@ export function validateOperationVariables(
       if (!/^[a-zA-Z0-9_\-]+$/.test(trimmed)) {
         return { valid: false, error: 'GetProductByHandle "handle" contains invalid characters.' };
       }
-      return { valid: true, sanitizedVariables: { handle: trimmed } };
+      const sanitized: Record<string, any> = { handle: trimmed };
+      if (vars.variantsCursor !== undefined && vars.variantsCursor !== null) {
+        if (typeof vars.variantsCursor !== 'string' || !vars.variantsCursor.trim() || vars.variantsCursor.length > 255) {
+          return { valid: false, error: 'GetProductByHandle "variantsCursor" must be a valid non-empty string cursor.' };
+        }
+        sanitized.variantsCursor = vars.variantsCursor.trim();
+      }
+      return { valid: true, sanitizedVariables: sanitized };
     }
 
     case 'GetCollections': {

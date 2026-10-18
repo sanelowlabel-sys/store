@@ -23,6 +23,7 @@ interface ProductPageProps {
   onToggleWishlist: (product: Product) => void;
   onAddToCart: (product: Product, variant: ShopifyVariant, quantity: number) => void;
   onBackToCatalogue: () => void;
+  onRetryVariants?: () => void;
 }
 
 export const ProductPage: React.FC<ProductPageProps> = ({
@@ -32,6 +33,7 @@ export const ProductPage: React.FC<ProductPageProps> = ({
   onToggleWishlist,
   onAddToCart,
   onBackToCatalogue,
+  onRetryVariants,
 }) => {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string>(
@@ -257,6 +259,30 @@ export const ProductPage: React.FC<ProductPageProps> = ({
                 {isVariantAvailable ? 'In Stock (Shopify Verified)' : 'Sold Out'}
               </span>
             </div>
+
+            {/* Incomplete Variants Warning with Retry */}
+            {product.variantsIncomplete && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-mono space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    Incomplete options loaded ({product.variants.length} retrieved)
+                  </span>
+                  {onRetryVariants && (
+                    <button
+                      type="button"
+                      onClick={onRetryVariants}
+                      className="text-amber-800 underline hover:text-black font-bold cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-700 leading-normal">
+                  {product.incompleteVariantsReason || 'Unable to retrieve all product options from Shopify. Preserving available loaded options.'}
+                </p>
+              </div>
+            )}
 
             {/* Size Options */}
             {product.sizes.length > 0 && product.sizes[0] !== 'One Size' && (

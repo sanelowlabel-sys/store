@@ -93,9 +93,14 @@ export const CART_FRAGMENT = `
 
 export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
   GetProducts: `
-    query GetProducts($first: Int!) @inContext(country: ZA) {
-      products(first: $first) {
+    query GetProducts($first: Int!, $after: String) @inContext(country: ZA) {
+      products(first: $first, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         edges {
+          cursor
           node {
             id
             title
@@ -135,7 +140,11 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
               name
               values
             }
-            variants(first: 50) {
+            variants(first: 100) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
               edges {
                 node {
                   id
@@ -161,7 +170,7 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
                 }
               }
             }
-            collections(first: 5) {
+            collections(first: 10) {
               edges {
                 node {
                   id
@@ -177,7 +186,7 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
   `,
 
   GetProductByHandle: `
-    query GetProductByHandle($handle: String!) @inContext(country: ZA) {
+    query GetProductByHandle($handle: String!, $variantsCursor: String) @inContext(country: ZA) {
       product(handle: $handle) {
         id
         title
@@ -219,7 +228,11 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
           name
           values
         }
-        variants(first: 50) {
+        variants(first: 250, after: $variantsCursor) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
           edges {
             node {
               id
@@ -245,7 +258,7 @@ export const SERVER_GRAPHQL_OPERATIONS: Record<string, string> = {
             }
           }
         }
-        collections(first: 5) {
+        collections(first: 10) {
           edges {
             node {
               id

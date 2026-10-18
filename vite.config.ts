@@ -294,6 +294,28 @@ function shopifyDevServerPlugin(): Plugin {
           res.end('Error generating robots.txt');
         }
       });
+
+      server.middlewares.use('/api/auth', async (req, res) => {
+        try {
+          const authModule = await import('./api/auth');
+          await authModule.default(req as any, res as any);
+        } catch (err: any) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err?.message || 'Error in auth endpoint' }));
+        }
+      });
+
+      server.middlewares.use('/api/customer', async (req, res) => {
+        try {
+          const custModule = await import('./api/customer');
+          await custModule.default(req as any, res as any);
+        } catch (err: any) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err?.message || 'Error in customer endpoint' }));
+        }
+      });
     },
   };
 }
@@ -307,6 +329,18 @@ export default defineConfig(() => {
       ),
       'process.env.VITE_SHOPIFY_CUSTOMER_ACCOUNT_URL': JSON.stringify(
         process.env.VITE_SHOPIFY_CUSTOMER_ACCOUNT_URL || process.env.SHOPIFY_CUSTOMER_ACCOUNT_URL || ''
+      ),
+      'process.env.ENABLE_CUSTOM_CUSTOMER_ACCOUNTS': JSON.stringify(
+        process.env.ENABLE_CUSTOM_CUSTOMER_ACCOUNTS || process.env.VITE_ENABLE_CUSTOM_CUSTOMER_ACCOUNTS || 'false'
+      ),
+      'process.env.VITE_ENABLE_CUSTOM_CUSTOMER_ACCOUNTS': JSON.stringify(
+        process.env.VITE_ENABLE_CUSTOM_CUSTOMER_ACCOUNTS || process.env.ENABLE_CUSTOM_CUSTOMER_ACCOUNTS || 'false'
+      ),
+      'process.env.SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID': JSON.stringify(
+        process.env.SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID || process.env.VITE_SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID || ''
+      ),
+      'process.env.VITE_SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID': JSON.stringify(
+        process.env.VITE_SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID || process.env.SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID || ''
       ),
     },
     resolve: {

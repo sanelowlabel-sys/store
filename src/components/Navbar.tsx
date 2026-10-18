@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { ShoppingBag, Heart, Search, Globe, X, Menu, Truck, User } from 'lucide-react';
-import { Category } from '../types';
+import { Category, CustomerSession } from '../types';
 import { SUPPORTED_CURRENCIES, formatPrice } from '../data/products';
-import { SHOPIFY_CUSTOMER_ACCOUNT_URL } from '../lib/shopify';
+import { SHOPIFY_CUSTOMER_ACCOUNT_URL, ENABLE_CUSTOM_CUSTOMER_ACCOUNTS } from '../lib/shopify';
 
 interface NavbarProps {
   currentCategory: Category;
@@ -16,6 +16,9 @@ interface NavbarProps {
   onOpenWishlist: () => void;
   onOpenTrackOrder: () => void;
   onOpenCustomerPortal: () => void;
+  onNavigateAccount?: (section?: 'overview' | 'orders' | 'profile') => void;
+  isCustomAccountsEnabled?: boolean;
+  customerSession?: CustomerSession | null;
   customerAccountUrl?: string;
   searchQuery: string;
   onSearchChange: (q: string) => void;
@@ -34,6 +37,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenWishlist,
   onOpenTrackOrder,
   onOpenCustomerPortal,
+  onNavigateAccount,
+  isCustomAccountsEnabled = ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
+  customerSession = null,
   customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
   searchQuery,
   onSearchChange,
@@ -137,15 +143,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* My orders link */}
             <a
               id="nav-my-orders-link"
-              href={customerAccountUrl || '#my-orders'}
+              href={isCustomAccountsEnabled ? '/account/orders' : (customerAccountUrl || '#my-orders')}
               onClick={(e) => {
-                if (!customerAccountUrl) {
+                if (isCustomAccountsEnabled && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  onNavigateAccount('orders');
+                } else if (!customerAccountUrl && !isCustomAccountsEnabled) {
                   e.preventDefault();
                   onOpenTrackOrder();
                 }
               }}
-              target={customerAccountUrl ? '_blank' : undefined}
-              rel={customerAccountUrl ? 'noopener noreferrer' : undefined}
+              target={!isCustomAccountsEnabled && customerAccountUrl ? '_blank' : undefined}
+              rel={!isCustomAccountsEnabled && customerAccountUrl ? 'noopener noreferrer' : undefined}
               className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100/90 border border-zinc-200 text-xs font-bold text-zinc-700 hover:text-black hover:border-zinc-300 transition-colors cursor-pointer"
               aria-label="My orders"
             >
@@ -207,20 +216,27 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Sign in / Create account Link */}
             <a
               id="nav-customer-account-link"
-              href={customerAccountUrl || '#sign-in'}
+              href={isCustomAccountsEnabled ? '/account' : (customerAccountUrl || '#sign-in')}
               onClick={(e) => {
-                if (!customerAccountUrl) {
+                if (isCustomAccountsEnabled && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  onNavigateAccount('overview');
+                } else if (!customerAccountUrl && !isCustomAccountsEnabled) {
                   e.preventDefault();
                   onOpenCustomerPortal();
                 }
               }}
-              target={customerAccountUrl ? '_blank' : undefined}
-              rel={customerAccountUrl ? 'noopener noreferrer' : undefined}
+              target={!isCustomAccountsEnabled && customerAccountUrl ? '_blank' : undefined}
+              rel={!isCustomAccountsEnabled && customerAccountUrl ? 'noopener noreferrer' : undefined}
               className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 text-zinc-800 transition-all cursor-pointer"
               aria-label="Sign in / Create account"
             >
               <User className="w-4 h-4 text-zinc-600" />
-              <span className="hidden sm:inline text-xs font-bold">Sign in / Create account</span>
+              <span className="hidden sm:inline text-xs font-bold">
+                {customerSession?.authenticated && customerSession.customer?.name
+                  ? `Hi, ${customerSession.customer.name.split(' ')[0]}`
+                  : 'Sign in / Create account'}
+              </span>
               <span className="sm:hidden text-xs font-bold">Account</span>
             </a>
 
@@ -314,34 +330,44 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
               <a
                 id="mobile-nav-sign-in"
-                href={customerAccountUrl || '#sign-in'}
+                href={isCustomAccountsEnabled ? '/account' : (customerAccountUrl || '#sign-in')}
                 onClick={(e) => {
-                  if (!customerAccountUrl) {
+                  if (isCustomAccountsEnabled && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    onNavigateAccount('overview');
+                  } else if (!customerAccountUrl && !isCustomAccountsEnabled) {
                     e.preventDefault();
                     onOpenCustomerPortal();
                   }
                   setIsMobileMenuOpen(false);
                 }}
-                target={customerAccountUrl ? '_blank' : undefined}
-                rel={customerAccountUrl ? 'noopener noreferrer' : undefined}
+                target={!isCustomAccountsEnabled && customerAccountUrl ? '_blank' : undefined}
+                rel={!isCustomAccountsEnabled && customerAccountUrl ? 'noopener noreferrer' : undefined}
                 className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-bold text-zinc-800 hover:bg-zinc-50 transition-colors cursor-pointer"
                 aria-label="Sign in / Create account"
               >
                 <User className="w-4 h-4 text-red-600" />
-                <span>Sign in / Create account</span>
+                <span>
+                  {customerSession?.authenticated && customerSession.customer?.name
+                    ? `Account (${customerSession.customer.name.split(' ')[0]})`
+                    : 'Sign in / Create account'}
+                </span>
               </a>
               <a
                 id="mobile-nav-my-orders"
-                href={customerAccountUrl || '#my-orders'}
+                href={isCustomAccountsEnabled ? '/account/orders' : (customerAccountUrl || '#my-orders')}
                 onClick={(e) => {
-                  if (!customerAccountUrl) {
+                  if (isCustomAccountsEnabled && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    onNavigateAccount('orders');
+                  } else if (!customerAccountUrl && !isCustomAccountsEnabled) {
                     e.preventDefault();
                     onOpenTrackOrder();
                   }
                   setIsMobileMenuOpen(false);
                 }}
-                target={customerAccountUrl ? '_blank' : undefined}
-                rel={customerAccountUrl ? 'noopener noreferrer' : undefined}
+                target={!isCustomAccountsEnabled && customerAccountUrl ? '_blank' : undefined}
+                rel={!isCustomAccountsEnabled && customerAccountUrl ? 'noopener noreferrer' : undefined}
                 className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-bold text-zinc-800 hover:bg-zinc-50 transition-colors cursor-pointer"
                 aria-label="My orders"
               >

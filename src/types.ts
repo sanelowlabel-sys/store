@@ -138,6 +138,9 @@ export interface Product {
   colors: ProductColor[];
   images: string[];
   variants: ShopifyVariant[];
+  variantsTruncated?: boolean;
+  variantsIncomplete?: boolean;
+  incompleteVariantsReason?: string;
   options: ShopifyOption[];
   tags: string[];
   bundleDeals?: BundleDeal[];
@@ -260,3 +263,117 @@ export interface ShopifyStoreConfig {
   isConfigured: boolean;
   errorMessage?: string;
 }
+
+// ============================================================================
+// Shopify Customer Account API Types
+// ============================================================================
+
+export interface CustomerAccountAddress {
+  id: string;
+  address1?: string | null;
+  address2?: string | null;
+  city?: string | null;
+  province?: string | null;
+  zip?: string | null;
+  country?: string | null;
+  formatted?: string[];
+}
+
+export interface CustomerAccountLineItem {
+  id: string;
+  title: string;
+  quantity: number;
+  variantTitle?: string | null;
+  price?: {
+    amount: string;
+    currencyCode: string;
+  };
+  totalDiscount?: {
+    amount: string;
+    currencyCode: string;
+  };
+  image?: {
+    url: string;
+    altText?: string | null;
+  } | null;
+}
+
+export interface CustomerAccountTrackingInfo {
+  company?: string | null;
+  number?: string | null;
+  url?: string | null;
+}
+
+export interface CustomerAccountFulfillment {
+  id: string;
+  status: string; // SUCCESS, OPEN, IN_PROGRESS, PENDING, CANCELLED, ERROR
+  latestShipmentStatus?: string | null; // LABEL_PRINTED, LABEL_PURCHASED, ATTEMPTED_DELIVERY, READY_FOR_PICKUP, CONFIRMED, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILURE
+  estimatedDeliveryAt?: string | null;
+  trackingInformation?: CustomerAccountTrackingInfo[];
+}
+
+export interface CustomerAccountOrder {
+  id: string;
+  name: string;
+  number?: number;
+  processedAt: string;
+  financialStatus: 'PAID' | 'PENDING' | 'AUTHORIZED' | 'PARTIALLY_PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED' | 'VOIDED' | string;
+  fulfillmentStatus: 'FULFILLED' | 'UNFULFILLED' | 'PARTIALLY_FULFILLED' | 'IN_PROGRESS' | 'ON_HOLD' | 'RESTOCKED' | string;
+  totalPrice: {
+    amount: string;
+    currencyCode: string;
+  };
+  subtotal?: {
+    amount: string;
+    currencyCode: string;
+  };
+  totalTax?: {
+    amount: string;
+    currencyCode: string;
+  };
+  totalShipping?: {
+    amount: string;
+    currencyCode: string;
+  };
+  lineItems: CustomerAccountLineItem[];
+  fulfillments: CustomerAccountFulfillment[];
+}
+
+export interface CustomerProfile {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  displayName: string;
+  emailAddress?: {
+    emailAddress: string;
+  } | null;
+  phoneNumber?: {
+    phoneNumber: string;
+  } | null;
+  defaultAddress?: CustomerAccountAddress | null;
+  addresses?: CustomerAccountAddress[];
+}
+
+export interface CustomerSession {
+  authenticated: boolean;
+  configured: boolean;
+  enabled: boolean;
+  customer?: {
+    id?: string | null;
+    email?: string | null;
+    name?: string | null;
+  } | null;
+  expiresAt?: number;
+  hostedFallbackUrl: string;
+}
+
+export interface CustomerOrdersPage {
+  orders: CustomerAccountOrder[];
+  pageInfo: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor?: string | null;
+    endCursor?: string | null;
+  };
+}
+
