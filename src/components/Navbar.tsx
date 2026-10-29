@@ -49,6 +49,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false);
 
+  const isCustomAccountsActive = isCustomAccountsEnabled || Boolean(customerSession?.isTester);
+
   const categories: { key: Category; label: string }[] = [
     { key: 'all', label: 'All Merch' },
     { key: 'hoodies-fleece', label: 'Hoodies & Fleece' },
@@ -60,7 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   ];
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-zinc-200 bg-white/95 backdrop-blur-md">
+    <header className="sticky top-0 z-40 w-full border-b border-[#e2e8f0] bg-white/95 backdrop-blur-md">
       {/* Minimal Navigation Loading Indicator Bar without text */}
       {isLoading && (
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-red-100 overflow-hidden z-50">
@@ -68,25 +70,25 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       )}
       {/* Top Notice Bar */}
-      <div className="bg-black text-white text-[11px] font-mono py-1.5 px-4 text-center tracking-wider flex items-center justify-center gap-3">
+      <div className="bg-[#0f172a] text-white text-[11px] font-mono py-1.5 px-4 text-center tracking-wider flex items-center justify-center gap-3">
         <span className="flex items-center gap-1.5 text-red-500 font-bold">
           <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
           SUMMER '26 ARCHIVE DROP LIVE
         </span>
-        <span className="hidden sm:inline text-zinc-400">•</span>
-        <span className="hidden sm:inline text-zinc-300">
+        <span className="hidden sm:inline text-slate-400">•</span>
+        <span className="hidden sm:inline text-slate-300">
           Official Shopify Storefront • South Africa & Worldwide Delivery
         </span>
       </div>
 
       {/* Main Bar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-18 sm:h-20 gap-4">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-18 sm:h-20 gap-2 sm:gap-4">
           {/* Mobile menu trigger */}
           <button
             id="mobile-menu-btn"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="lg:hidden p-2 text-zinc-700 hover:text-black rounded-xl hover:bg-zinc-100 transition-colors"
+            className="lg:hidden p-2 text-[#0f172a] hover:text-red-600 rounded-xl hover:bg-[#f8fafc] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
             aria-label="Toggle menu"
           >
             {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -96,7 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <a
             href="/"
             id="navbar-brand-logo"
-            className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded-xl hover:opacity-90 transition-opacity"
+            className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded-xl hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
             onClick={(e) => {
               if (!e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
@@ -105,11 +107,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             }}
             aria-label="Sanelow Store Home"
           >
-            <div className="relative flex items-center justify-center w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden bg-white border border-zinc-200 shadow-sm group shrink-0">
+            <div className="relative flex items-center justify-center w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden bg-white border border-[#e2e8f0] shadow-xs group shrink-0">
               <img
                 src="/sanelow-logo.jpg"
                 alt="Sanelow Store Logo"
-                className="w-full h-full object-contain p-0.5 group-hover:scale-105 transition-transform"
+                className="w-full h-full object-contain p-0.5 group-hover:scale-105 transition-transform motion-reduce:transition-none"
               />
             </div>
           </a>
@@ -127,10 +129,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onSelectCategory(cat.key);
                   }
                 }}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold tracking-tight transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold tracking-normal transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
                   currentCategory === cat.key
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-black hover:bg-zinc-100'
+                    ? 'bg-red-600 text-white shadow-xs'
+                    : 'text-[#64748b] hover:text-[#0f172a] hover:bg-[#f8fafc]'
                 }`}
               >
                 {cat.label}
@@ -139,23 +141,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Action Buttons: My orders, Currency, Search, Sign in / Create account, Wishlist, Cart */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5">
+          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
             {/* My orders link */}
             <a
               id="nav-my-orders-link"
-              href={isCustomAccountsEnabled ? '/account/orders' : (customerAccountUrl || '#my-orders')}
+              href={isCustomAccountsActive ? '/account/orders' : (customerAccountUrl || '#my-orders')}
               onClick={(e) => {
-                if (isCustomAccountsEnabled && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                if (isCustomAccountsActive && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
                   e.preventDefault();
                   onNavigateAccount('orders');
-                } else if (!customerAccountUrl && !isCustomAccountsEnabled) {
+                } else if (!customerAccountUrl && !isCustomAccountsActive) {
                   e.preventDefault();
                   onOpenTrackOrder();
                 }
               }}
-              target={!isCustomAccountsEnabled && customerAccountUrl ? '_blank' : undefined}
-              rel={!isCustomAccountsEnabled && customerAccountUrl ? 'noopener noreferrer' : undefined}
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100/90 border border-zinc-200 text-xs font-bold text-zinc-700 hover:text-black hover:border-zinc-300 transition-colors cursor-pointer"
+              target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
+              rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs font-semibold text-[#0f172a] hover:border-red-600 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               aria-label="My orders"
             >
               <Truck className="w-3.5 h-3.5 text-red-600" />
@@ -167,16 +169,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 id="currency-dropdown-toggle"
                 onClick={() => setIsCurrencyDropdownOpen(!isCurrencyDropdownOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-100/90 border border-zinc-200 text-xs font-mono font-bold text-zinc-800 hover:border-zinc-300 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs font-mono font-semibold text-[#0f172a] hover:border-red-600 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
                 aria-label="Change currency"
               >
-                <Globe className="w-3.5 h-3.5 text-zinc-500" />
+                <Globe className="w-3.5 h-3.5 text-[#64748b]" />
                 <span>{currency}</span>
               </button>
 
               {isCurrencyDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white border border-zinc-200 shadow-xl py-1 z-50 animate-in fade-in zoom-in-95">
-                  <div className="px-3 py-1.5 text-[10px] font-mono uppercase text-zinc-400 border-b border-zinc-100">
+                <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white border border-[#e2e8f0] shadow-lg py-1 z-50 animate-in fade-in zoom-in-95">
+                  <div className="px-3 py-1.5 text-[10px] font-mono uppercase text-[#64748b] border-b border-[#e2e8f0]">
                     Storefront Market
                   </div>
                   {Object.keys(SUPPORTED_CURRENCIES).map((cCode) => (
@@ -190,11 +192,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                       className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
                         currency === cCode
                           ? 'bg-red-50 text-red-600 font-bold'
-                          : 'text-zinc-700 hover:bg-zinc-50'
+                          : 'text-[#0f172a] hover:bg-[#f8fafc]'
                       }`}
                     >
                       <span>{SUPPORTED_CURRENCIES[cCode].label}</span>
-                      <span className="font-mono text-zinc-400 font-medium">
+                      <span className="font-mono text-[#64748b] font-medium">
                         {SUPPORTED_CURRENCIES[cCode].symbol}
                       </span>
                     </button>
@@ -207,7 +209,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               id="search-toggle-btn"
               onClick={() => setIsSearchOpen(!isSearchOpen)}
-              className="p-2 text-zinc-700 hover:text-black rounded-xl hover:bg-zinc-100 transition-colors cursor-pointer"
+              className="p-2 text-[#64748b] hover:text-[#0f172a] rounded-xl hover:bg-[#f8fafc] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               aria-label="Search store"
             >
               <Search className="w-4 h-4" />
@@ -216,35 +218,34 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Sign in / Create account Link */}
             <a
               id="nav-customer-account-link"
-              href={isCustomAccountsEnabled ? '/account' : (customerAccountUrl || '#sign-in')}
+              href={isCustomAccountsActive ? '/account' : (customerAccountUrl || '#sign-in')}
               onClick={(e) => {
-                if (isCustomAccountsEnabled && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                if (isCustomAccountsActive && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
                   e.preventDefault();
                   onNavigateAccount('overview');
-                } else if (!customerAccountUrl && !isCustomAccountsEnabled) {
+                } else if (!customerAccountUrl && !isCustomAccountsActive) {
                   e.preventDefault();
                   onOpenCustomerPortal();
                 }
               }}
-              target={!isCustomAccountsEnabled && customerAccountUrl ? '_blank' : undefined}
-              rel={!isCustomAccountsEnabled && customerAccountUrl ? 'noopener noreferrer' : undefined}
-              className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl border border-zinc-200 hover:border-black hover:bg-zinc-50 text-zinc-800 transition-all cursor-pointer"
+              target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
+              rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
+              className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl border border-[#e2e8f0] hover:border-red-600 hover:bg-[#f8fafc] text-[#0f172a] transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               aria-label="Sign in / Create account"
             >
-              <User className="w-4 h-4 text-zinc-600" />
-              <span className="hidden sm:inline text-xs font-bold">
+              <User className="w-4 h-4 text-[#64748b]" />
+              <span className="hidden sm:inline text-xs font-semibold">
                 {customerSession?.authenticated && customerSession.customer?.name
                   ? `Hi, ${customerSession.customer.name.split(' ')[0]}`
                   : 'Sign in / Create account'}
               </span>
-              <span className="sm:hidden text-xs font-bold">Account</span>
             </a>
 
             {/* Wishlist Button */}
             <button
               id="wishlist-drawer-btn"
               onClick={onOpenWishlist}
-              className="relative p-2 text-zinc-700 hover:text-black rounded-xl hover:bg-zinc-100 transition-colors cursor-pointer"
+              className="relative p-2 text-[#64748b] hover:text-[#0f172a] rounded-xl hover:bg-[#f8fafc] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               aria-label="View Wishlist"
             >
               <Heart className="w-4 h-4" />
@@ -259,14 +260,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               id="cart-drawer-btn"
               onClick={onOpenCart}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold tracking-wide transition-all shadow-md cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold tracking-wide transition-all shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
               aria-label="View Cart"
             >
               <ShoppingBag className="w-4 h-4" />
               <span className="hidden sm:inline">
                 {cartTotalAmount > 0 ? formatPrice(cartTotalAmount, currency) : 'BAG'}
               </span>
-              <span className="w-5 h-5 rounded-full bg-white text-black text-[11px] font-mono font-black flex items-center justify-center">
+              <span className="w-5 h-5 rounded-md bg-white text-[#0f172a] text-[11px] font-mono font-bold flex items-center justify-center">
                 {cartCount}
               </span>
             </button>
@@ -277,20 +278,20 @@ export const Navbar: React.FC<NavbarProps> = ({
         {isSearchOpen && (
           <div className="pb-4 pt-1 animate-in fade-in slide-in-from-top-2">
             <div className="relative">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748b]" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder="Search live catalogue by title, tag, or style..."
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-black placeholder-zinc-400 font-mono focus:outline-none focus:border-red-600"
+                className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs text-[#0f172a] placeholder-[#64748b] font-mono focus:outline-none focus:border-red-600 focus-visible:ring-2 focus-visible:ring-red-600"
                 autoFocus
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => onSearchChange('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-black p-1 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748b] hover:text-[#0f172a] p-1 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -301,8 +302,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden pb-4 pt-2 border-t border-zinc-100 flex flex-col gap-1">
-            <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-zinc-400">
+          <div className="lg:hidden pb-4 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
+            <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-[#64748b]">
               Collections
             </div>
             {categories.map((cat) => (
@@ -316,34 +317,34 @@ export const Navbar: React.FC<NavbarProps> = ({
                     setIsMobileMenuOpen(false);
                   }
                 }}
-                className={`text-left px-3 py-2 rounded-lg text-xs font-bold ${
-                  currentCategory === cat.key ? 'bg-red-50 text-red-600' : 'text-zinc-700'
+                className={`text-left px-3 py-2 rounded-lg text-xs font-semibold ${
+                  currentCategory === cat.key ? 'bg-red-50 text-red-600 font-bold' : 'text-[#0f172a] hover:bg-[#f8fafc]'
                 }`}
               >
                 {cat.label}
               </a>
             ))}
 
-            <div className="mt-2 pt-2 border-t border-zinc-100 flex flex-col gap-1">
-              <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-zinc-400">
+            <div className="mt-2 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
+              <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-[#64748b]">
                 Customer Account & Orders
               </div>
               <a
                 id="mobile-nav-sign-in"
-                href={isCustomAccountsEnabled ? '/account' : (customerAccountUrl || '#sign-in')}
+                href={isCustomAccountsActive ? '/account' : (customerAccountUrl || '#sign-in')}
                 onClick={(e) => {
-                  if (isCustomAccountsEnabled && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                  if (isCustomAccountsActive && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
                     e.preventDefault();
                     onNavigateAccount('overview');
-                  } else if (!customerAccountUrl && !isCustomAccountsEnabled) {
+                  } else if (!customerAccountUrl && !isCustomAccountsActive) {
                     e.preventDefault();
                     onOpenCustomerPortal();
                   }
                   setIsMobileMenuOpen(false);
                 }}
-                target={!isCustomAccountsEnabled && customerAccountUrl ? '_blank' : undefined}
-                rel={!isCustomAccountsEnabled && customerAccountUrl ? 'noopener noreferrer' : undefined}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-bold text-zinc-800 hover:bg-zinc-50 transition-colors cursor-pointer"
+                target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
+                rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold text-[#0f172a] hover:bg-[#f8fafc] transition-colors cursor-pointer"
                 aria-label="Sign in / Create account"
               >
                 <User className="w-4 h-4 text-red-600" />
@@ -355,20 +356,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               </a>
               <a
                 id="mobile-nav-my-orders"
-                href={isCustomAccountsEnabled ? '/account/orders' : (customerAccountUrl || '#my-orders')}
+                href={isCustomAccountsActive ? '/account/orders' : (customerAccountUrl || '#my-orders')}
                 onClick={(e) => {
-                  if (isCustomAccountsEnabled && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                  if (isCustomAccountsActive && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
                     e.preventDefault();
                     onNavigateAccount('orders');
-                  } else if (!customerAccountUrl && !isCustomAccountsEnabled) {
+                  } else if (!customerAccountUrl && !isCustomAccountsActive) {
                     e.preventDefault();
                     onOpenTrackOrder();
                   }
                   setIsMobileMenuOpen(false);
                 }}
-                target={!isCustomAccountsEnabled && customerAccountUrl ? '_blank' : undefined}
-                rel={!isCustomAccountsEnabled && customerAccountUrl ? 'noopener noreferrer' : undefined}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-bold text-zinc-800 hover:bg-zinc-50 transition-colors cursor-pointer"
+                target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
+                rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold text-[#0f172a] hover:bg-[#f8fafc] transition-colors cursor-pointer"
                 aria-label="My orders"
               >
                 <Truck className="w-4 h-4 text-red-600" />

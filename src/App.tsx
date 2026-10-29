@@ -30,6 +30,7 @@ import {
   fetchProductByHandle,
   fetchCollectionByHandle,
   getOrCreateShopifyCart,
+  getShopifyCart,
   addLinesToCart,
   updateLineInCart,
   removeLineFromCart,
@@ -153,6 +154,7 @@ export default function App() {
     if (window.location.pathname !== path) {
       window.history.pushState({}, '', path);
     }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
     setRoute(parseUrlRoute());
   }, []);
 
@@ -192,20 +194,28 @@ export default function App() {
   // Check server-side catalogue version (triggered by Shopify webhooks)
   const checkCatalogueVersion = useCallback(async () => {
     try {
-      const res = await fetch('/api/webhooks/shopify', { signal: AbortSignal.timeout(3500) });
-      if (res.ok) {
-        const json = await res.json();
-        if (typeof json.version === 'number') {
-          if (catalogueVersionRef.current !== null && json.version > catalogueVersionRef.current) {
-            catalogueVersionRef.current = json.version;
-            loadLiveProducts(true);
-            return;
-          }
+      const res = await fetch('/api/webhooks/shopify', {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(3500),
+      });
+      if (res.status !== 200) {
+        return;
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.toLowerCase().includes('application/json')) {
+        return;
+      }
+      const json = await res.json().catch(() => null);
+      if (json && typeof json === 'object' && typeof json.version === 'number') {
+        if (catalogueVersionRef.current !== null && json.version > catalogueVersionRef.current) {
           catalogueVersionRef.current = json.version;
+          loadLiveProducts(true);
+          return;
         }
+        catalogueVersionRef.current = json.version;
       }
     } catch {
-      // Non-blocking background check
+      // Non-blocking background check: never blocks initial load or periodic refresh
     }
   }, [loadLiveProducts]);
 
@@ -226,6 +236,9 @@ export default function App() {
 
   // Handle route change and load specific page data
   useEffect(() => {
+    // Dismiss any active quick preview modal when navigating
+    setSelectedProduct(null);
+
     if (route.view === 'product' && route.handle) {
       const matchingLocal = products.find((p) => p.handle === route.handle);
       if (matchingLocal) {
@@ -441,6 +454,24 @@ export default function App() {
     }
   };
 
+  const handleRevalidateCart = useCallback(async (): Promise<ShopifyCart | null> => {
+    if (!shopifyCart?.id) return null;
+    try {
+      const freshCart = await getShopifyCart(shopifyCart.id);
+      if (freshCart) {
+        setShopifyCart(freshCart);
+        return freshCart;
+      }
+      const newCart = await getOrCreateShopifyCart();
+      if (newCart) {
+        setShopifyCart(newCart);
+      }
+      return newCart;
+    } catch {
+      return shopifyCart;
+    }
+  }, [shopifyCart]);
+
   // Wishlist Actions
   const handleToggleWishlist = (product: Product) => {
     setWishlist((prev) => {
@@ -485,10 +516,11 @@ export default function App() {
             p.title.toLowerCase().includes('26');
           if (!hasDropTag) return false;
         }
-        // Under R1,000 threshold filter (ZAR adapted)
+        // Under US$60 threshold filter (applied only to USD-priced products)
         if (onlyUnderThreshold) {
-          const threshold = currency === 'ZAR' ? 1000 : 60;
-          if (p.priceAmount >= threshold) return false;
+          if (p.currencyCode !== 'USD' || p.priceAmount >= 60) {
+            return false;
+          }
         }
         // In stock
         if (onlyInStock && !p.availableForSale) {
@@ -527,7 +559,7 @@ export default function App() {
   const cartTotalQuantity = shopifyCart?.totalQuantity || 0;
 
   return (
-    <div className="min-h-screen bg-white text-black flex flex-col font-['Plus_Jakarta_Sans',sans-serif] selection:bg-red-600 selection:text-white">
+    <div className="min-h-screen bg-white text-[#0f172a] flex flex-col font-sans selection:bg-red-600 selection:text-white">
       {/* Initial load feel - minimal without text */}
       {isInitialLoading && (
         <MerchLoader fullscreen={true} />
@@ -544,7 +576,7 @@ export default function App() {
 
       {/* Toast Alert */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-4 z-50 px-4 py-3 rounded-2xl bg-black text-white text-xs font-mono shadow-2xl flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-3 border border-red-600">
+        <div className="fixed bottom-6 right-4 z-50 px-4 py-3 rounded-2xl bg-[#0f172a] text-white text-xs font-mono shadow-2xl flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-3 border border-red-600">
           <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
           <span>{toastMessage}</span>
         </div>
@@ -591,22 +623,22 @@ export default function App() {
 
       {/* ROUTE 1: Dedicated Product Detail Page (/products/{handle}) */}
       {route.view === 'product' && (
-        <main className="flex-1 w-full">
+        <main className="flex-1 w-full min-w-0">
           {pageLoading ? (
             <div className="py-24 text-center">
               <MerchLoader fullscreen={false} />
             </div>
           ) : pageNotFound || !activeProductPage ? (
             <div className="py-24 text-center max-w-md mx-auto space-y-4 px-4">
-              <span className="px-3 py-1 bg-red-100 text-red-600 font-mono text-xs font-bold rounded-full">HTTP 404</span>
-              <h1 className="text-2xl font-black">Piece Not Found</h1>
-              <p className="text-xs text-zinc-600 leading-relaxed">
+              <span className="px-3 py-1 bg-red-50 text-red-600 font-mono text-xs font-bold rounded-lg border border-red-200">HTTP 404</span>
+              <h1 className="text-2xl font-heading font-extrabold text-[#0f172a] tracking-tight">Piece Not Found</h1>
+              <p className="text-xs text-[#64748b] leading-relaxed">
                 The product requested is not currently active in the Sanelow catalogue.
               </p>
               <button
                 type="button"
                 onClick={() => navigateTo('/')}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-zinc-800 transition-colors cursor-pointer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0f172a] text-white text-xs font-semibold tracking-wider uppercase hover:bg-slate-800 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Return to Catalogue</span>
@@ -645,15 +677,15 @@ export default function App() {
             </div>
           ) : pageNotFound || !activeCollectionPage ? (
             <div className="py-24 text-center max-w-md mx-auto space-y-4 px-4">
-              <span className="px-3 py-1 bg-red-100 text-red-600 font-mono text-xs font-bold rounded-full">HTTP 404</span>
-              <h1 className="text-2xl font-black">Collection Not Found</h1>
-              <p className="text-xs text-zinc-600 leading-relaxed">
+              <span className="px-3 py-1 bg-red-50 text-red-600 font-mono text-xs font-bold rounded-lg border border-red-200">HTTP 404</span>
+              <h1 className="text-2xl font-heading font-extrabold text-[#0f172a] tracking-tight">Collection Not Found</h1>
+              <p className="text-xs text-[#64748b] leading-relaxed">
                 The collection requested does not exist or has been archived.
               </p>
               <button
                 type="button"
                 onClick={() => navigateTo('/')}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-zinc-800 transition-colors cursor-pointer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0f172a] text-white text-xs font-semibold tracking-wider uppercase hover:bg-slate-800 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Return to Catalogue</span>
@@ -700,13 +732,13 @@ export default function App() {
           {/* Product Catalog Section */}
           <main ref={catalogRef} className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 w-full">
             {/* Catalog Header & Controls Bar */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-200">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-[#e2e8f0]">
               <div>
-                <div className="flex items-center gap-2 text-xs font-mono text-red-600 font-black uppercase tracking-wider">
+                <div className="flex items-center gap-2 text-xs font-mono text-red-600 font-bold uppercase tracking-wider">
                   <Scissors className="w-3.5 h-3.5" />
                   <span>LIVE SHOPIFY STOREFRONT CATALOGUE</span>
                 </div>
-                <h2 className="text-2xl sm:text-3xl font-black text-black mt-1">
+                <h2 className="text-2xl sm:text-3xl font-heading font-extrabold text-[#0f172a] tracking-tight mt-1">
                   {currentCategory === 'all'
                     ? 'Curated Merch Collection'
                     : currentCategory === 'hoodies-fleece'
@@ -721,7 +753,7 @@ export default function App() {
                     ? 'Bottoms & Shorts'
                     : 'Accessories & Bags'}
                 </h2>
-                <div className="flex items-center gap-3 text-xs text-zinc-500 mt-1 font-mono">
+                <div className="flex items-center gap-3 text-xs text-[#64748b] mt-1 font-mono">
                   <span>
                     Showing {filteredProducts.length} {filteredProducts.length === 1 ? 'piece' : 'pieces'}
                   </span>
@@ -740,7 +772,7 @@ export default function App() {
                     type="button"
                     onClick={() => loadLiveProducts(false)}
                     disabled={isRefreshingCatalog}
-                    className="text-zinc-500 hover:text-black flex items-center gap-1 transition-colors cursor-pointer"
+                    className="text-[#64748b] hover:text-[#0f172a] flex items-center gap-1 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded px-1"
                     title="Refresh Shopify catalogue"
                   >
                     <RefreshCw className={`w-3 h-3 ${isRefreshingCatalog ? 'animate-spin text-red-600' : ''}`} />
@@ -760,10 +792,10 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setOnlyDrop26(!onlyDrop26)}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer flex items-center gap-1.5 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
                     onlyDrop26
-                      ? 'bg-red-50 border-red-600 text-red-600 font-black'
-                      : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
+                      ? 'bg-red-50 border-red-600 text-red-600 font-bold'
+                      : 'bg-white border-[#e2e8f0] text-[#0f172a] hover:border-red-600'
                   }`}
                 >
                   <Flame className="w-3.5 h-3.5" />
@@ -773,22 +805,22 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setOnlyUnderThreshold(!onlyUnderThreshold)}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
                     onlyUnderThreshold
-                      ? 'bg-red-50 border-red-600 text-red-600 font-black'
-                      : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
+                      ? 'bg-red-50 border-red-600 text-red-600 font-bold'
+                      : 'bg-white border-[#e2e8f0] text-[#0f172a] hover:border-red-600'
                   }`}
                 >
-                  {currency === 'ZAR' ? 'Under R1,000' : 'Under $60'}
+                  Under US$60
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setOnlyInStock(!onlyInStock)}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
                     onlyInStock
-                      ? 'bg-red-50 border-red-600 text-red-600 font-black'
-                      : 'bg-white border-zinc-200 text-zinc-600 hover:text-black hover:border-black'
+                      ? 'bg-red-50 border-red-600 text-red-600 font-bold'
+                      : 'bg-white border-[#e2e8f0] text-[#0f172a] hover:border-red-600'
                   }`}
                 >
                   In Stock Only
@@ -800,14 +832,14 @@ export default function App() {
                     id="sort-select-dropdown"
                     value={sortOption}
                     onChange={(e) => setSortOption(e.target.value as unknown as typeof sortOption)}
-                    className="appearance-none pl-3 pr-8 py-1.5 rounded-xl bg-white border border-zinc-200 text-xs font-mono text-black focus:outline-none focus:border-red-600 cursor-pointer"
+                    className="appearance-none pl-3 pr-8 py-1.5 rounded-xl bg-white border border-[#e2e8f0] text-xs font-mono text-[#0f172a] hover:border-red-600 focus:outline-none focus:border-red-600 focus-visible:ring-2 focus-visible:ring-red-600 cursor-pointer shadow-xs"
                   >
                     <option value="featured">Sort: Featured</option>
                     <option value="price-asc">Price: Low to High</option>
                     <option value="price-desc">Price: High to Low</option>
                     <option value="title">Alphabetical (A-Z)</option>
                   </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#64748b] pointer-events-none" />
                 </div>
               </div>
             </div>
@@ -815,17 +847,17 @@ export default function App() {
             {/* Product Grid or Empty State */}
             {products.length === 0 ? (
               <div className="py-20 text-center space-y-5 max-w-lg mx-auto">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center justify-center mx-auto text-red-600">
+                <div className="w-16 h-16 rounded-2xl bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center mx-auto text-red-600 shadow-xs">
                   <ShoppingBag className="w-8 h-8" />
                 </div>
 
                 <div className="space-y-2">
-                  <h3 className="text-xl font-black text-black">
+                  <h3 className="text-xl font-heading font-extrabold text-[#0f172a] tracking-tight">
                     {!isConfigured
                       ? 'Shopify Storefront Token Required'
                       : 'No Published Products Found'}
                   </h3>
-                  <p className="text-xs text-zinc-600 leading-relaxed">
+                  <p className="text-xs text-[#64748b] leading-relaxed">
                     {!isConfigured
                       ? `Connect to your Shopify store (${SHOPIFY_STORE_DOMAIN}) by setting SHOPIFY_STOREFRONT_ACCESS_TOKEN in your Vercel deployment or environment.`
                       : `Storefront connected to ${SHOPIFY_STORE_DOMAIN}, but no products were returned. Ensure your products are published to the Online Store / Headless sales channel in Shopify Admin.`}
@@ -837,7 +869,7 @@ export default function App() {
                     type="button"
                     onClick={() => loadLiveProducts(false)}
                     disabled={isRefreshingCatalog}
-                    className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-2"
+                    className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-2 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingCatalog ? 'animate-spin' : ''}`} />
                     <span>{isRefreshingCatalog ? 'Connecting...' : 'Check Connection'}</span>
@@ -847,7 +879,7 @@ export default function App() {
                     href={`https://${SHOPIFY_STORE_DOMAIN}/admin`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-5 py-2.5 rounded-xl bg-black hover:bg-zinc-800 text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                    className="px-5 py-2.5 rounded-xl bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
                   >
                     Open Shopify Admin
                   </a>
@@ -855,13 +887,13 @@ export default function App() {
               </div>
             ) : filteredProducts.length === 0 ? (
               <div className="py-20 text-center space-y-4">
-                <div className="w-16 h-16 rounded-full bg-zinc-50 border border-zinc-200 flex items-center justify-center mx-auto text-zinc-400">
+                <div className="w-16 h-16 rounded-full bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center mx-auto text-[#64748b]">
                   <Filter className="w-8 h-8" />
                 </div>
-                <h3 className="text-lg font-black text-black">
+                <h3 className="text-lg font-heading font-extrabold text-[#0f172a] tracking-tight">
                   No pieces match your active filters
                 </h3>
-                <p className="text-xs text-zinc-500 max-w-sm mx-auto leading-relaxed">
+                <p className="text-xs text-[#64748b] max-w-sm mx-auto leading-relaxed">
                   Try adjusting your category, price range, or search keyword.
                 </p>
                 <button
@@ -873,7 +905,7 @@ export default function App() {
                     setOnlyUnderThreshold(false);
                     setOnlyInStock(false);
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
                 >
                   Reset Filters
                 </button>
@@ -908,15 +940,17 @@ export default function App() {
         customerAccountUrl={SHOPIFY_CUSTOMER_ACCOUNT_URL}
       />
 
-      {/* Quick View / Full Product Details Modal (available as secondary quick preview) */}
-      <ProductModal
-        product={selectedProduct}
-        currency={currency}
-        isWishlisted={selectedProduct ? isProductInWishlist(selectedProduct.id) : false}
-        onToggleWishlist={handleToggleWishlist}
-        onAddToCart={(prod, variant, qty) => handleAddToCart(prod, variant, qty)}
-        onClose={() => setSelectedProduct(null)}
-      />
+      {/* Quick View / Full Product Details Modal (available as secondary quick preview on non-product routes) */}
+      {route.view !== 'product' && selectedProduct && (
+        <ProductModal
+          product={selectedProduct}
+          currency={currency}
+          isWishlisted={isProductInWishlist(selectedProduct.id)}
+          onToggleWishlist={handleToggleWishlist}
+          onAddToCart={(prod, variant, qty) => handleAddToCart(prod, variant, qty)}
+          onClose={() => setSelectedProduct(null)}
+        />
+      )}
 
       {/* Shopify Cart Drawer */}
       <CartDrawer
@@ -928,6 +962,7 @@ export default function App() {
         onRemoveItem={handleRemoveFromCart}
         onApplyDiscount={handleApplyDiscount}
         onBrowseProducts={scrollToCatalog}
+        onRevalidateCart={handleRevalidateCart}
       />
 
       {/* Direct Shopify Checkout Redirect Modal */}

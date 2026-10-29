@@ -42,27 +42,27 @@ export const FaqModal: React.FC<FaqModalProps> = ({ isOpen, onClose, onOpenTrack
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
       <div
         id="faq-modal-container"
-        className="relative w-full max-w-2xl bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl shadow-2xl p-6 sm:p-8 my-auto text-black"
+        className="relative w-full max-w-2xl bg-white border border-[#e2e8f0] rounded-2xl sm:rounded-3xl shadow-2xl p-6 sm:p-8 my-auto text-[#0f172a] font-sans"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-5 right-5 p-2 rounded-full bg-zinc-100 text-zinc-500 hover:text-black hover:bg-zinc-200 transition-colors cursor-pointer"
+          className="absolute top-5 right-5 p-2 rounded-full bg-[#f8fafc] text-[#64748b] hover:text-[#0f172a] hover:bg-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
           aria-label="Close FAQ"
         >
           <X className="w-5 h-5" />
         </button>
 
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-red-600">
+          <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-red-600 shadow-xs">
             <HelpCircle className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-xl font-black text-black">
+            <h3 className="text-xl font-heading font-extrabold text-[#0f172a] tracking-tight">
               Merch Sizing & Order FAQ
             </h3>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-[#64748b]">
               Essential details regarding heavyweight fabrics, drop schedules, sizing & express logistics.
             </p>
           </div>
@@ -72,18 +72,18 @@ export const FaqModal: React.FC<FaqModalProps> = ({ isOpen, onClose, onOpenTrack
           {faqs.map((faq, i) => {
             const Icon = faq.icon;
             return (
-              <div key={i} className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2">
-                <div className="flex items-center gap-2.5 text-black font-bold text-xs sm:text-sm">
+              <div key={i} className="p-4 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] space-y-2 shadow-xs">
+                <div className="flex items-center gap-2.5 text-[#0f172a] font-semibold text-xs sm:text-sm">
                   <Icon className="w-4 h-4 text-red-600 shrink-0" />
                   <span>{faq.q}</span>
                 </div>
-                <p className="text-xs text-zinc-600 leading-relaxed pl-6.5">{faq.a}</p>
+                <p className="text-xs text-[#64748b] leading-relaxed pl-6.5">{faq.a}</p>
               </div>
             );
           })}
         </div>
 
-        <div className="mt-6 pt-4 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono text-zinc-500">
+        <div className="mt-6 pt-4 border-t border-[#e2e8f0] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono text-[#64748b]">
           <span>Looking for live drop tracking checkpoints?</span>
           <button
             type="button"
@@ -91,7 +91,7 @@ export const FaqModal: React.FC<FaqModalProps> = ({ isOpen, onClose, onOpenTrack
               onClose();
               if (onOpenTrackOrder) onOpenTrackOrder();
             }}
-            className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold uppercase tracking-wider transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white font-semibold uppercase tracking-wider transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
           >
             Track Merch Order
           </button>

@@ -3,6 +3,7 @@ import { parse as parseUrl } from 'url';
 import {
   getSession,
   isCustomAccountsEnabled,
+  hasTesterAccess,
   SHOPIFY_SHOP_ID,
   HOSTED_ACCOUNT_FALLBACK_URL,
 } from './auth.js';
@@ -340,8 +341,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  // 1. Enforce Server-Side Feature Flag
-  if (!isCustomAccountsEnabled()) {
+  // 1. Enforce Server-Side Feature Flag or Authorized Tester Access
+  const globalEnabled = isCustomAccountsEnabled();
+  const testerAccess = await hasTesterAccess(req);
+  if (!globalEnabled && !testerAccess) {
     res.statusCode = 403;
     res.setHeader('Content-Type', 'application/json');
     res.end(

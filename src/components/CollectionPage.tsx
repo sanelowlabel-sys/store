@@ -27,11 +27,11 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
   }, [collection]);
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-black pt-24 pb-20">
+    <div className="min-h-screen bg-white text-[#0f172a] pt-24 pb-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Breadcrumb Navigation with crawlable links */}
         <nav aria-label="Breadcrumb" className="mb-6">
-          <ol className="flex items-center gap-2 text-xs sm:text-sm text-zinc-500 font-mono">
+          <ol className="flex items-center gap-2 text-xs sm:text-sm text-[#64748b] font-mono">
             <li>
               <a
                 href="/"
@@ -41,13 +41,13 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
                     onBackToHome();
                   }
                 }}
-                className="hover:text-red-600 transition-colors"
+                className="hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
               >
                 HOME
               </a>
             </li>
             <li>
-              <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+              <ChevronRight className="w-3.5 h-3.5 text-[#64748b]" />
             </li>
             <li>
               <a
@@ -58,15 +58,15 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
                     onBackToHome();
                   }
                 }}
-                className="hover:text-red-600 transition-colors"
+                className="hover:text-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
               >
                 CATALOGUE
               </a>
             </li>
             <li>
-              <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+              <ChevronRight className="w-3.5 h-3.5 text-[#64748b]" />
             </li>
-            <li className="text-black font-bold uppercase truncate" aria-current="page">
+            <li className="text-[#0f172a] font-bold uppercase truncate" aria-current="page">
               {collection.title}
             </li>
           </ol>
@@ -76,23 +76,23 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
         <button
           type="button"
           onClick={onBackToHome}
-          className="inline-flex items-center gap-2 text-xs uppercase font-mono font-bold tracking-wider text-zinc-600 hover:text-black mb-6 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 text-xs uppercase font-mono font-semibold tracking-wider text-[#64748b] hover:text-[#0f172a] mb-6 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded px-1"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Catalogue</span>
         </button>
 
         {/* Header */}
-        <div className="mb-10 border-b border-zinc-200 pb-8">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-zinc-100 border border-zinc-200 rounded-full text-zinc-800 text-xs font-mono mb-4">
+        <div className="mb-10 border-b border-[#e2e8f0] pb-8">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#f8fafc] border border-[#e2e8f0] rounded-full text-[#0f172a] text-xs font-mono mb-4 shadow-xs">
             <Layers className="w-3.5 h-3.5 text-red-600" />
             <span>COLLECTION • {collectionProducts.length} PIECES</span>
           </div>
-          <h1 className="text-3xl sm:text-5xl font-black uppercase tracking-tight text-black mb-4">
+          <h1 className="text-3xl sm:text-5xl font-heading font-extrabold uppercase tracking-tight text-[#0f172a] mb-4">
             {collection.title}
           </h1>
           {collection.description && (
-            <p className="text-zinc-600 max-w-2xl text-sm sm:text-base leading-relaxed">
+            <p className="text-[#64748b] max-w-2xl text-sm sm:text-base leading-relaxed">
               {collection.description}
             </p>
           )}
@@ -100,7 +100,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
 
         {/* Products Grid */}
         {collectionProducts.length === 0 ? (
-          <div className="py-16 text-center text-zinc-500 font-mono text-sm">
+          <div className="py-16 text-center text-[#64748b] font-mono text-sm bg-[#f8fafc] border border-[#e2e8f0] rounded-2xl">
             No pieces found in this collection.
           </div>
         ) : (

@@ -47,17 +47,26 @@ export const DEFAULT_COUNTRY = (
 export const DEFAULT_CURRENCY =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEFAULT_CURRENCY) ||
   (typeof process !== 'undefined' && (process.env?.DEFAULT_CURRENCY || process.env?.VITE_DEFAULT_CURRENCY)) ||
-  'ZAR';
+  'USD';
 
 const CART_STORAGE_KEY = 'sanelow_shopify_cart_id';
 
-// Clean currency formatter using native Intl with South Africa (ZAR) support
+// Clean currency formatter using native Intl with South Africa context and explicit USD display
 export function formatPrice(amount: number | string, currency: string = DEFAULT_CURRENCY): string {
   const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-  if (isNaN(num)) return `${currency} 0.00`;
+  const curr = (currency || DEFAULT_CURRENCY).toUpperCase();
+  if (isNaN(num)) return `${curr} 0.00`;
 
-  const curr = currency.toUpperCase();
   try {
+    if (curr === 'USD') {
+      const formatted = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(num);
+      return `${formatted} USD`;
+    }
     return new Intl.NumberFormat(curr === 'ZAR' ? 'en-ZA' : 'en-US', {
       style: 'currency',
       currency: curr,
@@ -65,6 +74,9 @@ export function formatPrice(amount: number | string, currency: string = DEFAULT_
       maximumFractionDigits: 2,
     }).format(num);
   } catch {
+    if (curr === 'USD') {
+      return `$${num.toFixed(2)} USD`;
+    }
     if (curr === 'ZAR') {
       return `R ${num.toFixed(2)}`;
     }
@@ -149,28 +161,145 @@ function mapCategory(productType: string, tags: string[], title: string): Catego
   return 'all';
 }
 
-// Convert common color names to approximate hex for UI swatch preview
-function getColorHex(colorName: string): string {
-  const map: Record<string, string> = {
-    black: '#18181b',
-    white: '#f4f4f5',
-    grey: '#71717a',
-    gray: '#71717a',
-    charcoal: '#3f3f46',
-    red: '#dc2626',
-    maroon: '#881337',
-    burgundy: '#881337',
-    blue: '#2563eb',
-    navy: '#1e3a8a',
-    green: '#16a34a',
-    olive: '#3f6212',
-    cream: '#fef08a',
-    beige: '#e7e5e4',
-    khaki: '#d6d3d1',
-    brown: '#78350f',
-  };
+// Clearly defined mapping of fashion & merch colours to accurate hex values
+const COLOR_HEX_MAP: Record<string, string> = {
+  // Pastel, fashion & seasonal shades
+  peppermint: '#a7f3d0',
+  'vanilla milkshake': '#fef3c7',
+  vanilla: '#fef3c7',
+  milkshake: '#fef3c7',
+  cream: '#fef08a',
+  butter: '#fef08a',
+  bone: '#e7e5e4',
+  ivory: '#fffff0',
+  natural: '#f5f5f4',
+  sand: '#d6d3d1',
+  'desert sand': '#e7d8c9',
+  beige: '#e7e5e4',
+  khaki: '#d6d3d1',
+  tan: '#d2b48c',
+  camel: '#c19a6b',
+
+  // Monochromes & neutrals
+  black: '#18181b',
+  'jet black': '#09090b',
+  white: '#ffffff',
+  'arctic white': '#ffffff',
+  'pure white': '#ffffff',
+  'off white': '#fafaf9',
+  'off-white': '#fafaf9',
+  grey: '#71717a',
+  gray: '#71717a',
+  'heather grey': '#94a3b8',
+  'heather gray': '#94a3b8',
+  'light grey': '#e2e8f0',
+  'light gray': '#e2e8f0',
+  'dark grey': '#3f3f46',
+  'dark gray': '#3f3f46',
+  charcoal: '#334155',
+  anthracite: '#334155',
+
+  // Reds, pinks & purples
+  red: '#dc2626',
+  crimson: '#be123c',
+  ruby: '#be123c',
+  cherry: '#991b1b',
+  cardinal: '#991b1b',
+  scarlet: '#dc2626',
+  maroon: '#881337',
+  burgundy: '#831843',
+  wine: '#701a75',
+  pink: '#ec4899',
+  'light pink': '#fbcfe8',
+  'baby pink': '#fce7f3',
+  'dusty rose': '#fda4af',
+  rose: '#f43f5e',
+  magenta: '#d946ef',
+  fuchsia: '#c026d3',
+  purple: '#9333ea',
+  violet: '#7c3aed',
+  lavender: '#c084fc',
+  lilac: '#d8b4fe',
+  plum: '#581c87',
+
+  // Blues & cyans
+  blue: '#2563eb',
+  'royal blue': '#1d4ed8',
+  navy: '#1e3a8a',
+  'navy blue': '#1e3a8a',
+  'midnight blue': '#0f172a',
+  'sky blue': '#38bdf8',
+  'light blue': '#7dd3fc',
+  'baby blue': '#bae6fd',
+  'powder blue': '#bae6fd',
+  'ice blue': '#e0f2fe',
+  cyan: '#06b6d4',
+  teal: '#0d9488',
+  turquoise: '#14b8a6',
+  aqua: '#22d3ee',
+
+  // Greens
+  green: '#16a34a',
+  'forest green': '#14532d',
+  'dark green': '#14532d',
+  emerald: '#059669',
+  mint: '#6ee7b7',
+  sage: '#84a98c',
+  'sage green': '#84a98c',
+  olive: '#4d7c0f',
+  'olive green': '#4d7c0f',
+  'army green': '#3f4f2c',
+  'khaki green': '#575f4a',
+  'moss green': '#4a5d43',
+  lime: '#84cc16',
+
+  // Yellows, oranges & browns
+  yellow: '#eab308',
+  'sun yellow': '#facc15',
+  mustard: '#ca8a04',
+  gold: '#eab308',
+  orange: '#ea580c',
+  'burnt orange': '#c2410c',
+  peach: '#fed7aa',
+  coral: '#fb7185',
+  salmon: '#fda4af',
+  amber: '#d97706',
+  rust: '#b45309',
+  copper: '#b45309',
+  brown: '#78350f',
+  chocolate: '#451a03',
+  mocha: '#5c3d2e',
+  coffee: '#4a3728',
+  caramel: '#b45309',
+  bronze: '#78350f',
+};
+
+const SORTED_COLOR_KEYS = Object.keys(COLOR_HEX_MAP).sort((a, b) => b.length - a.length);
+
+/**
+ * Resolves color name to a clearly defined hex code.
+ * Returns null for unknown colors rather than an inaccurate fallback hex.
+ */
+export function resolveColorSwatchHex(colorName: string): string | null {
+  if (!colorName || typeof colorName !== 'string') return null;
   const lower = colorName.trim().toLowerCase();
-  return map[lower] || '#27272a';
+  if (!lower) return null;
+
+  // 1. Exact match
+  if (COLOR_HEX_MAP[lower]) {
+    return COLOR_HEX_MAP[lower];
+  }
+
+  // 2. Keyword/substring match (e.g. "Heather Mint" -> "mint", "Dark Navy" -> "navy")
+  for (const key of SORTED_COLOR_KEYS) {
+    const regex = new RegExp(`\\b${key}\\b`, 'i');
+    if (regex.test(lower)) {
+      return COLOR_HEX_MAP[key];
+    }
+  }
+
+  // Unknown colour: return null so UI can render readable text rather than inaccurate black
+  return null;
 }
 
 // Map Shopify GraphQL node to clean Product
@@ -196,6 +325,7 @@ export function transformShopifyProduct(node: any): Product {
     id: opt.id,
     name: opt.name,
     values: opt.values || [],
+    optionValues: opt.optionValues || [],
   }));
 
   // Extract Sizes and Colors from options
@@ -208,13 +338,29 @@ export function transformShopifyProduct(node: any): Product {
 
   const sizes = sizeOption ? sizeOption.values : variants.map((v) => v.title).slice(0, 7);
   const colors: ProductColor[] = colorOption
-    ? colorOption.values.map((val: string) => ({
-        name: val,
-        hex: getColorHex(val),
-        inStock: variants.some((v) =>
-          v.selectedOptions.some((so) => so.name.toLowerCase() === colorOption.name.toLowerCase() && so.value === val && v.availableForSale)
-        ),
-      }))
+    ? colorOption.values.map((val: string) => {
+        const optionVal = (colorOption as any).optionValues?.find(
+          (ov: any) => ov.name?.toLowerCase() === val.toLowerCase()
+        );
+        const shopifySwatchColor = optionVal?.swatch?.color || null;
+        const shopifySwatchImg = optionVal?.swatch?.image?.previewImage?.url || null;
+        const resolvedHex = shopifySwatchColor || resolveColorSwatchHex(val);
+
+        return {
+          name: val,
+          hex: resolvedHex,
+          hasSwatch: Boolean(resolvedHex || shopifySwatchImg),
+          swatchImage: shopifySwatchImg,
+          inStock: variants.some((v) =>
+            v.selectedOptions.some(
+              (so: any) =>
+                so.name.toLowerCase() === colorOption.name.toLowerCase() &&
+                so.value.toLowerCase() === val.toLowerCase() &&
+                v.availableForSale
+            )
+          ),
+        };
+      })
     : [];
 
   const minPrice = parseFloat(node.priceRange?.minVariantPrice?.amount || '0');
@@ -279,7 +425,7 @@ export function transformShopifyProduct(node: any): Product {
     fabricSpecs: [],
     sizingDetails: [],
     sizes: sizes.length > 0 ? sizes : ['One Size'],
-    colors: colors.length > 0 ? colors : [{ name: 'Original', hex: '#18181b', inStock: true }],
+    colors: colors.length > 0 ? colors : [{ name: 'Original', hex: '#18181b', hasSwatch: true, inStock: true }],
     images,
     variants,
     options,
@@ -601,6 +747,56 @@ function transformCart(rawCart: any): ShopifyCart {
     discountCodes: rawCart.discountCodes || [],
     lines,
   };
+}
+
+/**
+ * Detects whether the application is running inside an embedded preview (e.g. iframe).
+ * In an embedded preview, direct navigation inside the iframe leads to "[store].myshopify.com refused to connect"
+ * because Shopify checkout frames are blocked with X-Frame-Options: DENY.
+ */
+export function isEmbeddedPreview(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  // Test-runner override hook
+  if ((window as any).__MOCK_EMBEDDED_PREVIEW__ !== undefined) {
+    return Boolean((window as any).__MOCK_EMBEDDED_PREVIEW__);
+  }
+
+  // URL query parameter check (?embedded=true / ?embedded=false)
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('embedded') === 'true') return true;
+    if (params.get('embedded') === 'false') return false;
+  } catch {
+    // Ignore URL parsing errors
+  }
+
+  try {
+    if (window.self !== window.top) {
+      return true;
+    }
+  } catch {
+    // Cross-origin iframe throws error accessing window.top, which indicates embedding
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Fetches the current state of an existing Shopify cart by ID to revalidate
+ * lines, availability, totals, and checkoutUrl directly from Shopify.
+ */
+export async function getShopifyCart(cartId: string): Promise<ShopifyCart | null> {
+  const res = await shopifyFetch<{ cart: any }>({
+    operation: 'GetCart',
+    variables: { cartId },
+  });
+
+  if (res.data?.cart) {
+    return transformCart(res.data.cart);
+  }
+  return null;
 }
 
 // Get or Create Cart with local storage persistence and invalid-cart recovery

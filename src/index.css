@@ -1,43 +1,100 @@
 @import "tailwindcss";
 
 @theme {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: 'Manrope', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
   --color-brand-red: #dc2626;
   --color-brand-red-hover: #b91c1c;
   --color-brand-red-light: #ef4444;
-  --color-brand-dark: #000000;
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --color-surface-subdued: #f8fafc;
+  --color-border-subdued: #e2e8f0;
+  --color-text-primary: #0f172a;
+  --color-text-muted: #64748b;
 }
 
-/* Custom smooth scroll and refined light scrollbars */
+/* Base resets & typography */
 html {
   scroll-behavior: smooth;
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   background-color: #ffffff;
-  color: #000000;
+  color: #0f172a;
 }
 
 body {
   background-color: #ffffff;
-  color: #000000;
+  color: #0f172a;
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
+/* Style Guide Heading Rule: Manrope with -0.02em letter spacing */
+h1, h2, h3, h4, h5, h6,
+.font-heading {
+  font-family: var(--font-heading);
+  letter-spacing: -0.02em;
+}
+
+/* Subtle dot / grid patterns sparingly */
+.bg-grid-subtle {
+  background-image: radial-gradient(#e2e8f0 1.2px, transparent 1.2px);
+  background-size: 24px 24px;
+}
+
+.bg-dot-subtle {
+  background-image: radial-gradient(rgba(220, 38, 38, 0.12) 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+
+/* Studio card utility */
+.studio-card {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  transition: all 0.2s ease-in-out;
+}
+
+.studio-card:hover {
+  border-color: #dc2626;
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+}
+
+/* Accessible focus ring utility */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Scrollbar refinement */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f4f4f5;
+  background: #f8fafc;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d4d4d8;
+  background: #cbd5e1;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1aa;
+  background: #94a3b8;
 }
-

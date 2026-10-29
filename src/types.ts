@@ -50,7 +50,9 @@ export interface Review {
 
 export interface ProductColor {
   name: string;
-  hex: string;
+  hex?: string | null;
+  hasSwatch?: boolean;
+  swatchImage?: string | null;
   inStock?: boolean;
 }
 
@@ -358,6 +360,7 @@ export interface CustomerSession {
   authenticated: boolean;
   configured: boolean;
   enabled: boolean;
+  isTester?: boolean;
   customer?: {
     id?: string | null;
     email?: string | null;

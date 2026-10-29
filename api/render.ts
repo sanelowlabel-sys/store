@@ -673,8 +673,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
                     <p>${escapeHtml(description)}</p>
                   </div>
                   <div class="pt-4">
-                    <span class="inline-block px-3 py-1 rounded-full text-xs font-mono font-bold ${product.availableForSale ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-200 text-zinc-700'}">
-                      ${product.availableForSale ? 'In Stock (Shopify Verified)' : 'Sold Out'}
+                    <span class="inline-block px-3 py-1 rounded-full text-xs font-mono font-semibold ${product.availableForSale ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-200 text-zinc-700'}">
+                      ${product.availableForSale ? 'In stock' : 'Unavailable'}
                     </span>
                   </div>
                 </div>
