@@ -191,9 +191,9 @@ export const ProductPage: React.FC<ProductPageProps> = ({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 w-full min-w-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-8 lg:gap-8 xl:gap-14 w-full min-w-0">
         {/* Left: Gallery */}
-        <div className="lg:col-span-7 min-w-0 w-full space-y-4">
+        <div className="lg:col-span-1 xl:col-span-7 min-w-0 w-full space-y-4">
           <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-[#f8fafc] border border-[#e2e8f0] shadow-xs">
             <img
               src={userSelectedImage || selectedVariant?.image?.url || images[selectedImageIndex] || images[0]}
@@ -263,7 +263,7 @@ export const ProductPage: React.FC<ProductPageProps> = ({
         </div>
 
         {/* Right: Info & Actions */}
-        <div className="lg:col-span-5 min-w-0 w-full flex flex-col justify-between space-y-6">
+        <div className="lg:col-span-1 xl:col-span-5 min-w-0 w-full flex flex-col justify-between space-y-6">
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-2 text-xs font-mono">
               <span className="text-red-600 font-bold uppercase tracking-wider">
@@ -438,7 +438,7 @@ export const ProductPage: React.FC<ProductPageProps> = ({
                   type="button"
                   onClick={handleAdd}
                   disabled={!isVariantAvailable}
-                  className={`flex-1 min-h-[44px] py-3.5 px-4 sm:px-6 rounded-xl font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none touch-manipulation ${
+                  className={`flex-1 min-w-0 min-h-[44px] py-3.5 px-3 sm:px-6 rounded-xl font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none touch-manipulation ${
                     !isVariantAvailable
                       ? 'bg-slate-100 text-[#64748b] border border-[#e2e8f0] cursor-not-allowed shadow-none'
                       : isAddedRecently

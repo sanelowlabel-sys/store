@@ -84,11 +84,11 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Main Bar */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-18 sm:h-20 gap-2 sm:gap-4">
-          {/* Mobile menu trigger */}
+          {/* Mobile menu trigger - collapses before contents overlap */}
           <button
             id="mobile-menu-btn"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="lg:hidden p-2 text-[#0f172a] hover:text-red-600 rounded-xl hover:bg-[#f8fafc] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+            className="xl:hidden p-2 text-[#0f172a] hover:text-red-600 rounded-xl hover:bg-[#f8fafc] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
             aria-label="Toggle menu"
           >
             {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -116,8 +116,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </a>
 
-          {/* Desktop Categories */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5" aria-label="Merchandise Categories">
+          {/* Desktop Categories - Shown on xl+ where full original labels fit */}
+          <nav className="hidden xl:flex items-center gap-1 xl:gap-1.5" aria-label="Merchandise Categories">
             {categories.map((cat) => (
               <a
                 key={cat.key}
@@ -129,13 +129,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onSelectCategory(cat.key);
                   }
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold tracking-normal transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
+                className={`px-2.5 2xl:px-3 py-1.5 rounded-xl text-xs font-semibold tracking-normal transition-all cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
                   currentCategory === cat.key
                     ? 'bg-red-600 text-white shadow-xs'
                     : 'text-[#64748b] hover:text-[#0f172a] hover:bg-[#f8fafc]'
                 }`}
               >
-                {cat.label}
+                <span>{cat.label}</span>
               </a>
             ))}
           </nav>
@@ -157,7 +157,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
               rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs font-semibold text-[#0f172a] hover:border-red-600 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
+              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs font-semibold text-[#0f172a] hover:border-red-600 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               aria-label="My orders"
             >
               <Truck className="w-3.5 h-3.5 text-red-600" />
@@ -234,7 +234,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               aria-label="Sign in / Create account"
             >
               <User className="w-4 h-4 text-[#64748b]" />
-              <span className="hidden sm:inline text-xs font-semibold">
+              <span className="hidden md:inline 2xl:hidden text-xs font-semibold">
+                {customerSession?.authenticated && customerSession.customer?.name
+                  ? `Hi, ${customerSession.customer.name.split(' ')[0]}`
+                  : 'Account'}
+              </span>
+              <span className="hidden 2xl:inline text-xs font-semibold">
                 {customerSession?.authenticated && customerSession.customer?.name
                   ? `Hi, ${customerSession.customer.name.split(' ')[0]}`
                   : 'Sign in / Create account'}
@@ -302,7 +307,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden pb-4 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
+          <div className="xl:hidden pb-4 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
             <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-[#64748b]">
               Collections
             </div>

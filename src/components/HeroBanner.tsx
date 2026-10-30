@@ -69,7 +69,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
             </div>
 
             {/* Value Pillars */}
-            <div className="pt-4 border-t border-[#e2e8f0] grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs font-mono text-[#64748b]">
+            <div className="pt-4 border-t border-[#e2e8f0] grid grid-cols-1 min-[480px]:grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 text-xs font-mono text-[#64748b]">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>Shopify Verified Checkout</span>
@@ -78,7 +78,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                 <Truck className="w-4 h-4 text-red-600 shrink-0" />
                 <span>South Africa Delivery</span>
               </div>
-              <div className="flex items-center gap-2 col-span-2 sm:col-span-1">
+              <div className="flex items-center gap-2 min-[480px]:col-span-2 sm:col-span-1">
                 <span className="w-2 h-2 rounded-full bg-[#0f172a] shrink-0" />
                 <span>PCI-DSS Level 1 Security</span>
               </div>

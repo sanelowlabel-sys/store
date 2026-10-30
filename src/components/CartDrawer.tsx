@@ -153,13 +153,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-hidden">
       <div
         id="cart-drawer-container"
-        className="w-full max-w-full sm:max-w-md h-full bg-white border-l border-[#e2e8f0] text-[#0f172a] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 font-sans"
+        className="w-full max-w-full sm:max-w-md h-full max-h-screen bg-white border-l border-[#e2e8f0] text-[#0f172a] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 font-sans min-h-0"
       >
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-[#e2e8f0] flex items-center justify-between">
+        <div className="p-4 sm:p-5 border-b border-[#e2e8f0] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <ShoppingBag className="w-5 h-5 text-red-600" />
             <h2 className="text-base font-heading font-extrabold text-[#0f172a] uppercase tracking-wider">
@@ -178,7 +178,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         </div>
 
         {/* Real Shopify Order Context Notice */}
-        <div className="px-4 sm:px-5 py-2.5 sm:py-3 bg-[#f8fafc] border-b border-[#e2e8f0] text-xs font-mono text-[#64748b] flex items-center justify-between">
+        <div className="px-4 sm:px-5 py-2.5 sm:py-3 bg-[#f8fafc] border-b border-[#e2e8f0] text-xs font-mono text-[#64748b] flex items-center justify-between shrink-0">
           <span className="flex items-center gap-1.5 text-[#0f172a]">
             <Truck className="w-3.5 h-3.5 text-red-600" />
             <span>Official Shopify Storefront Cart</span>
@@ -189,7 +189,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         </div>
 
         {/* Cart Item List */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 sm:space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-3.5 sm:space-y-4">
           {lines.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
               <div className="w-16 h-16 rounded-2xl bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center text-[#64748b] shadow-xs">
@@ -264,7 +264,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           </span>
                         ))}
                         {merchandise.sku && (
-                          <span className="px-1.5 py-0.5 rounded bg-white border border-[#e2e8f0] text-[#64748b] text-[10px] font-mono">
+                          <span className="px-1.5 py-0.5 rounded bg-white border border-[#e2e8f0] text-[#64748b] text-[10px] font-mono truncate max-w-full">
                             {merchandise.sku}
                           </span>
                         )}
@@ -315,7 +315,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
         {/* Footer Checkout & Promo */}
         {lines.length > 0 && (
-          <div className="p-4 sm:p-5 border-t border-[#e2e8f0] bg-white space-y-3">
+          <div className="p-4 sm:p-5 border-t border-[#e2e8f0] bg-white space-y-3 shrink-0 overflow-y-auto max-h-[50vh] sm:max-h-none">
             {/* Promo Code Input (Validated by Shopify) */}
             <form onSubmit={handleApplyPromo} className="space-y-1">
               <div className="flex gap-2">

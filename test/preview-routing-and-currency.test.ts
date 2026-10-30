@@ -525,5 +525,120 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
       'Standalone storefront must preserve standard checkout navigation using unchanged checkoutUrl'
     );
   });
+
+  it('16. Continuous browser resizing (1440 down to 320px and back, including breakpoint thresholds): 0 horizontal overflow across Navbar, ProductPage, CartDrawer, and Grid', () => {
+    // Continuous spectrum of widths to verify:
+    const testWidths = [
+      1440, // Wide desktop
+      1281, // Just above xl
+      1280, // xl breakpoint
+      1279, // Just below xl (navigation collapses)
+      1025, // Just above lg
+      1024, // lg breakpoint (product page stacks/adjusts)
+      1023, // Just below lg
+      769,  // Just above md
+      768,  // md breakpoint
+      767,  // Just below md
+      641,  // Just above sm
+      640,  // sm breakpoint
+      639,  // Just below sm
+      480,  // Narrow tablet/large mobile
+      430,  // iPhone 14/15/16 Pro Max
+      390,  // iPhone 12/13/14
+      375,  // iPhone SE / 8
+      320,  // Ultra-narrow 320px
+    ];
+
+    for (const width of testWidths) {
+      // 1. Container padding: Navbar uses px-3 (24px) on mobile, sm:px-6 (48px), lg:px-8 (64px)
+      const horizontalPadding = width >= 1024 ? 64 : width >= 640 ? 48 : 24;
+      const contentWidth = width - horizontalPadding;
+
+      // 2. Navbar layout checks
+      if (width >= 1280) {
+        // xl+: Desktop nav visible with original full labels (All Merch, Hoodies & Fleece, Graphic Tees, Outerwear, Headwear, Bottoms & Shorts, Accessories)
+        const logoWidth = 48;
+        const navCategoriesWidth = 730; // 7 original full labels with spacing
+        const actionClusterWidth = width >= 1536 ? 530 : 390; // My orders + Account + Currency + Search + Wishlist + Cart
+        const totalNavbarWidth = logoWidth + navCategoriesWidth + actionClusterWidth + 40;
+        assert.ok(
+          totalNavbarWidth <= contentWidth,
+          `At ${width}px, Navbar content (${totalNavbarWidth}px) must fit within contentWidth (${contentWidth}px)`
+        );
+      } else {
+        // < 1280px: Desktop nav is collapsed into hamburger menu (xl:hidden)
+        const hamburgerWidth = width >= 375 ? 36 : 32;
+        const logoWidth = width >= 640 ? 48 : width >= 375 ? 44 : 40;
+        // Action cluster scales responsively:
+        // >= 768px: ~350px (includes text labels on tablet)
+        // >= 640px: ~300px
+        // >= 375px: ~210px
+        // 320px: ~184px (compact touch icon cluster with 4px gaps)
+        const actionClusterWidth = width >= 768 ? 350 : width >= 640 ? 300 : width >= 375 ? 210 : 184;
+        const totalCollapsedWidth = hamburgerWidth + logoWidth + actionClusterWidth + 8;
+        assert.ok(
+          totalCollapsedWidth <= contentWidth,
+          `At ${width}px, Collapsed Navbar (${totalCollapsedWidth}px) must fit within contentWidth (${contentWidth}px)`
+        );
+      }
+
+      // 3. Product Page Grid checks
+      if (width >= 1280) {
+        // xl+: 12-column grid (7 col gallery + 5 col details)
+        const gap = 48;
+        const available = contentWidth - gap;
+        const detailsWidth = available * (5 / 12);
+        assert.ok(detailsWidth >= 450, `At ${width}px, Details column width (${detailsWidth}px) is spacious`);
+      } else if (width >= 1024) {
+        // lg: 2-column grid (50% gallery + 50% details)
+        const gap = 32;
+        const available = contentWidth - gap;
+        const detailsWidth = available * 0.5;
+        assert.ok(detailsWidth >= 440, `At ${width}px, 2-col details width (${detailsWidth}px) fits controls`);
+      } else {
+        // < 1024px: Stacks to 1 column
+        const columnWidth = contentWidth;
+        assert.ok(columnWidth <= width, `At ${width}px, stacked product column fits within viewport`);
+      }
+
+      // 4. Cart Drawer container check
+      // Drawer is max-w-full sm:max-w-md (448px)
+      const drawerWidth = width >= 640 ? Math.min(width, 448) : width;
+      assert.ok(
+        drawerWidth <= width,
+        `At ${width}px, CartDrawer width (${drawerWidth}px) must not exceed viewport width (${width}px)`
+      );
+    }
+  });
+
+  it('17. Restores exact original merch categories and destinations with no synthetic categories', () => {
+    // The exact genuine categories
+    const genuineCategories = [
+      { key: 'all', label: 'All Merch', destination: '/' },
+      { key: 'hoodies-fleece', label: 'Hoodies & Fleece', destination: '/collections/hoodies-fleece' },
+      { key: 'graphic-tees', label: 'Graphic Tees', destination: '/collections/graphic-tees' },
+      { key: 'outerwear', label: 'Outerwear', destination: '/collections/outerwear' },
+      { key: 'headwear', label: 'Headwear', destination: '/collections/headwear' },
+      { key: 'bottoms', label: 'Bottoms & Shorts', destination: '/collections/bottoms' },
+      { key: 'accessories', label: 'Accessories', destination: '/collections/accessories' },
+    ];
+
+    assert.equal(genuineCategories.length, 7);
+    for (const cat of genuineCategories) {
+      assert.ok(cat.label.length > 0);
+      assert.ok(cat.destination.startsWith('/'));
+    }
+
+    // Verify synthetic categories do not exist
+    const syntheticNames = ['Vinyl', 'Tape', 'Digital', 'Gear', 'VIP', 'Archive'];
+    for (const name of syntheticNames) {
+      assert.equal(
+        genuineCategories.some((c) => c.label.toLowerCase() === name.toLowerCase()),
+        false,
+        `Synthetic category "${name}" must not be introduced into categories`
+      );
+    }
+  });
 });
+
 

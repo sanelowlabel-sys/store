@@ -9,7 +9,7 @@ export const BrandStorySection: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
           {/* Left Visual Grid */}
-          <div className="lg:col-span-6 grid grid-cols-2 gap-4">
+          <div className="lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-4">
               <div className="relative rounded-2xl overflow-hidden aspect-[4/5] bg-[#f8fafc] border border-[#e2e8f0] shadow-xs group hover:border-red-600 transition-colors motion-reduce:transition-none">
                 <img
@@ -22,7 +22,7 @@ export const BrandStorySection: React.FC = () => {
                   // DIRECT MERCH CRAFTSMANSHIP
                 </div>
               </div>
-              <div className="p-5 rounded-2xl bg-[#f8fafc] border border-[#e2e8f0] space-y-2 shadow-xs hover:border-red-600 transition-colors">
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#f8fafc] border border-[#e2e8f0] space-y-2 shadow-xs hover:border-red-600 transition-colors">
                 <div className="flex items-center gap-2 text-red-600">
                   <Scissors className="w-4 h-4" />
                   <span className="text-xs font-mono font-bold uppercase">Tailored Boxy Silhouette</span>
@@ -33,8 +33,8 @@ export const BrandStorySection: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-4 pt-8">
-              <div className="p-5 rounded-2xl bg-red-50 border border-red-200 space-y-2 shadow-xs hover:border-red-600 transition-colors">
+            <div className="space-y-4 pt-0 sm:pt-8">
+              <div className="p-4 sm:p-5 rounded-2xl bg-red-50 border border-red-200 space-y-2 shadow-xs hover:border-red-600 transition-colors">
                 <div className="flex items-center gap-2 text-red-700">
                   <ShieldCheck className="w-4 h-4" />
                   <span className="text-xs font-mono font-bold uppercase">Pigment & Acid Wash Finishing</span>

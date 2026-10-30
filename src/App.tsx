@@ -670,7 +670,7 @@ export default function App() {
 
       {/* ROUTE 2: Dedicated Collection Page (/collections/{handle}) */}
       {route.view === 'collection' && (
-        <main className="flex-1 w-full">
+        <main className="flex-1 w-full min-w-0">
           {pageLoading ? (
             <div className="py-24 text-center">
               <MerchLoader fullscreen={false} />
@@ -707,7 +707,7 @@ export default function App() {
 
       {/* ROUTE 3: Dedicated Customer Account Dashboard (/account, /account/orders, /account/profile) */}
       {route.view === 'account' && (
-        <main className="flex-1 w-full">
+        <main className="flex-1 w-full min-w-0">
           <CustomerDashboard
             initialTab={route.accountSection || 'overview'}
             initialOrderId={route.orderId}
