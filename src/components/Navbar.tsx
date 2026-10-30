@@ -23,6 +23,8 @@ interface NavbarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   isLoading?: boolean;
+  currentView?: string;
+  onNavigateLookbook?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -44,6 +46,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   searchQuery,
   onSearchChange,
   isLoading = false,
+  currentView = 'home',
+  onNavigateLookbook,
 }) => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -83,22 +87,24 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Main Bar */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-18 sm:h-20 gap-2 sm:gap-4">
-          {/* Mobile menu trigger - collapses before contents overlap */}
-          <button
-            id="mobile-menu-btn"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="xl:hidden p-2 text-[#0f172a] hover:text-red-600 rounded-xl hover:bg-[#f8fafc] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
-            aria-label="Toggle menu"
-          >
-            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+        <div className="relative flex items-center justify-between h-18 sm:h-20 gap-2 sm:gap-4">
+          {/* Mobile menu trigger - left aligned */}
+          <div className="flex items-center xl:hidden shrink-0 z-10">
+            <button
+              id="mobile-menu-btn"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 text-[#0f172a] hover:text-red-600 rounded-xl hover:bg-[#f8fafc] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 cursor-pointer"
+              aria-label="Toggle menu"
+            >
+              {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
 
-          {/* Brand Logo Only - Clean standalone logo without adjacent text */}
+          {/* Brand Logo Only - Centred relative to header container on collapsed/tablet (< xl), left on desktop (xl+) */}
           <a
             href="/"
             id="navbar-brand-logo"
-            className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded-xl hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+            className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded-xl hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 xl:static xl:top-auto xl:left-auto xl:translate-x-0 xl:translate-y-0 z-10"
             onClick={(e) => {
               if (!e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
@@ -116,7 +122,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </a>
 
-          {/* Desktop Categories - Shown on xl+ where full original labels fit */}
+          {/* Desktop Categories & Lookbook - Shown on xl+ where full original labels fit */}
           <nav className="hidden xl:flex items-center gap-1 xl:gap-1.5" aria-label="Merchandise Categories">
             {categories.map((cat) => (
               <a
@@ -129,8 +135,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onSelectCategory(cat.key);
                   }
                 }}
-                className={`px-2.5 2xl:px-3 py-1.5 rounded-xl text-xs font-semibold tracking-normal transition-all cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
-                  currentCategory === cat.key
+                className={`px-2 2xl:px-2.5 py-1.5 rounded-xl text-xs font-semibold tracking-normal transition-all cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
+                  currentCategory === cat.key && currentView !== 'lookbook'
                     ? 'bg-red-600 text-white shadow-xs'
                     : 'text-[#64748b] hover:text-[#0f172a] hover:bg-[#f8fafc]'
                 }`}
@@ -138,11 +144,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>{cat.label}</span>
               </a>
             ))}
+
+            {/* Lookbook link in desktop navigation */}
+            <a
+              id="nav-link-lookbook"
+              href="/lookbook"
+              onClick={(e) => {
+                if (!e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  onNavigateLookbook?.();
+                }
+              }}
+              className={`px-2 2xl:px-2.5 py-1.5 rounded-xl text-xs font-semibold tracking-normal transition-all cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
+                currentView === 'lookbook'
+                  ? 'bg-red-600 text-white shadow-xs'
+                  : 'text-[#64748b] hover:text-[#0f172a] hover:bg-[#f8fafc]'
+              }`}
+            >
+              <span>Lookbook</span>
+            </a>
           </nav>
 
           {/* Action Buttons: My orders, Currency, Search, Sign in / Create account, Wishlist, Cart */}
-          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
-            {/* My orders link */}
+          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0 z-10 ml-auto">
+            {/* My orders link - preserved on 2xl+, accessible via mobile menu on other viewports */}
             <a
               id="nav-my-orders-link"
               href={isCustomAccountsActive ? '/account/orders' : (customerAccountUrl || '#my-orders')}
@@ -157,15 +182,15 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
               rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
-              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs font-semibold text-[#0f172a] hover:border-red-600 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
+              className="hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs font-semibold text-[#0f172a] hover:border-red-600 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               aria-label="My orders"
             >
               <Truck className="w-3.5 h-3.5 text-red-600" />
               <span>My orders</span>
             </a>
 
-            {/* Currency Selector */}
-            <div className="relative">
+            {/* Currency Selector - visible on sm+, accessible via mobile menu on narrow screens */}
+            <div className="relative hidden sm:block">
               <button
                 id="currency-dropdown-toggle"
                 onClick={() => setIsCurrencyDropdownOpen(!isCurrencyDropdownOpen)}
@@ -215,7 +240,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Search className="w-4 h-4" />
             </button>
 
-            {/* Sign in / Create account Link */}
+            {/* Sign in / Create account Link - collapsed on < sm, preserved in mobile menu */}
             <a
               id="nav-customer-account-link"
               href={isCustomAccountsActive ? '/account' : (customerAccountUrl || '#sign-in')}
@@ -230,7 +255,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
               rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
-              className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl border border-[#e2e8f0] hover:border-red-600 hover:bg-[#f8fafc] text-[#0f172a] transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
+              className="hidden sm:flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl border border-[#e2e8f0] hover:border-red-600 hover:bg-[#f8fafc] text-[#0f172a] transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               aria-label="Sign in / Create account"
             >
               <User className="w-4 h-4 text-[#64748b]" />
@@ -265,7 +290,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               id="cart-drawer-btn"
               onClick={onOpenCart}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold tracking-wide transition-all shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
+              className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold tracking-wide transition-all shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
               aria-label="View Cart"
             >
               <ShoppingBag className="w-4 h-4" />
@@ -323,12 +348,66 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }
                 }}
                 className={`text-left px-3 py-2 rounded-lg text-xs font-semibold ${
-                  currentCategory === cat.key ? 'bg-red-50 text-red-600 font-bold' : 'text-[#0f172a] hover:bg-[#f8fafc]'
+                  currentCategory === cat.key && currentView !== 'lookbook' ? 'bg-red-50 text-red-600 font-bold' : 'text-[#0f172a] hover:bg-[#f8fafc]'
                 }`}
               >
                 {cat.label}
               </a>
             ))}
+
+            {/* Editorial Features Section */}
+            <div className="mt-2 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
+              <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-[#64748b]">
+                Editorial & Archive
+              </div>
+              <a
+                id="mobile-nav-lookbook"
+                href="/lookbook"
+                onClick={(e) => {
+                  if (!e.metaKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    onNavigateLookbook?.();
+                    setIsMobileMenuOpen(false);
+                  }
+                }}
+                className={`text-left px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-between ${
+                  currentView === 'lookbook' ? 'bg-red-50 text-red-600 font-bold' : 'text-[#0f172a] hover:bg-[#f8fafc]'
+                }`}
+              >
+                <span>Lookbook — Merch in the Wild</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-bold uppercase">
+                  Gallery
+                </span>
+              </a>
+            </div>
+
+            {/* Mobile Currency Selection */}
+            <div className="mt-2 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
+              <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-[#64748b] flex items-center gap-1.5">
+                <Globe className="w-3 h-3 text-[#64748b]" />
+                <span>Storefront Currency ({currency})</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1 px-3 py-1">
+                {Object.keys(SUPPORTED_CURRENCIES).map((cCode) => (
+                  <button
+                    key={cCode}
+                    type="button"
+                    onClick={() => {
+                      onSelectCurrency(cCode);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-mono text-left flex items-center justify-between border cursor-pointer ${
+                      currency === cCode
+                        ? 'bg-red-50 border-red-600 text-red-600 font-bold'
+                        : 'bg-white border-[#e2e8f0] text-[#0f172a] hover:bg-[#f8fafc]'
+                    }`}
+                  >
+                    <span>{cCode}</span>
+                    <span className="text-[#64748b]">{SUPPORTED_CURRENCIES[cCode].symbol}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="mt-2 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
               <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-[#64748b]">

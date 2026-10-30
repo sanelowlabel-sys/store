@@ -14,6 +14,7 @@ import { FaqModal } from './components/FaqModal';
 import { TrackOrderModal } from './components/TrackOrderModal';
 import { CustomerPortalModal } from './components/CustomerPortalModal';
 import { CustomerDashboard } from './components/CustomerDashboard';
+import { LookbookPage } from './components/LookbookPage';
 import { MerchLoader } from './components/MerchLoader';
 import { ShopifySetupBanner } from './components/ShopifySetupBanner';
 
@@ -53,7 +54,7 @@ import {
 } from 'lucide-react';
 
 interface RouteState {
-  view: 'home' | 'product' | 'collection' | 'account';
+  view: 'home' | 'product' | 'collection' | 'account' | 'lookbook';
   handle?: string;
   accountSection?: 'overview' | 'orders' | 'order-detail' | 'profile';
   orderId?: string;
@@ -62,6 +63,7 @@ interface RouteState {
 function parseUrlRoute(): RouteState {
   if (typeof window === 'undefined') return { view: 'home' };
   const pathname = window.location.pathname;
+  if (pathname === '/lookbook' || pathname.startsWith('/lookbook')) return { view: 'lookbook' };
   const prodMatch = pathname.match(/^\/products\/([a-zA-Z0-9_\-]+)/);
   if (prodMatch) return { view: 'product', handle: prodMatch[1] };
   const colMatch = pathname.match(/^\/collections\/([a-zA-Z0-9_\-]+)/);
@@ -274,6 +276,16 @@ export default function App() {
           document.title = 'Collection Not Found | Sanelow Merchant Store';
         }
       });
+    } else if (route.view === 'lookbook') {
+      setActiveProductPage(null);
+      setActiveCollectionPage(null);
+      setPageNotFound(false);
+      document.title = 'Lookbook — Editorial Archive | Sanelow Merchant Store';
+
+      const metaRobots = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+      if (metaRobots) {
+        metaRobots.content = 'index, follow';
+      }
     } else if (route.view === 'account') {
       setActiveProductPage(null);
       setActiveCollectionPage(null);
@@ -619,6 +631,8 @@ export default function App() {
           if (route.view !== 'home') navigateTo('/');
         }}
         isLoading={pageLoading || isRefreshingCatalog}
+        currentView={route.view}
+        onNavigateLookbook={() => navigateTo('/lookbook')}
       />
 
       {/* ROUTE 1: Dedicated Product Detail Page (/products/{handle}) */}
@@ -717,7 +731,17 @@ export default function App() {
         </main>
       )}
 
-      {/* ROUTE 4: Homepage Catalogue */}
+      {/* ROUTE 4: Dedicated Lookbook Page (/lookbook) */}
+      {route.view === 'lookbook' && (
+        <main className="flex-1 w-full min-w-0">
+          <LookbookPage
+            onNavigateHome={() => navigateTo('/')}
+            onNavigateProduct={(handle) => navigateTo(`/products/${handle}`)}
+          />
+        </main>
+      )}
+
+      {/* ROUTE 5: Homepage Catalogue */}
       {route.view === 'home' && (
         <>
           {/* Hero Banner */}

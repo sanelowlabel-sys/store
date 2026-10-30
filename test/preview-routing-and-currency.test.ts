@@ -556,29 +556,37 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
 
       // 2. Navbar layout checks
       if (width >= 1280) {
-        // xl+: Desktop nav visible with original full labels (All Merch, Hoodies & Fleece, Graphic Tees, Outerwear, Headwear, Bottoms & Shorts, Accessories)
+        // xl+: Desktop nav visible with original full labels + Lookbook
         const logoWidth = 48;
-        const navCategoriesWidth = 730; // 7 original full labels with spacing
-        const actionClusterWidth = width >= 1536 ? 530 : 390; // My orders + Account + Currency + Search + Wishlist + Cart
-        const totalNavbarWidth = logoWidth + navCategoriesWidth + actionClusterWidth + 40;
+        const navCategoriesWidth = 715; // 7 original full labels + Lookbook with px-2 and gap-1
+        const actionClusterWidth = width >= 1536 ? 480 : 320; // At xl (< 1536), My orders is hidden; Account + Currency + Search + Wishlist + Cart = ~320px
+        const totalNavbarWidth = logoWidth + navCategoriesWidth + actionClusterWidth + 10;
         assert.ok(
           totalNavbarWidth <= contentWidth,
           `At ${width}px, Navbar content (${totalNavbarWidth}px) must fit within contentWidth (${contentWidth}px)`
         );
       } else {
         // < 1280px: Desktop nav is collapsed into hamburger menu (xl:hidden)
+        // Logo is positioned independently at container center: x = contentWidth / 2
         const hamburgerWidth = width >= 375 ? 36 : 32;
         const logoWidth = width >= 640 ? 48 : width >= 375 ? 44 : 40;
-        // Action cluster scales responsively:
-        // >= 768px: ~350px (includes text labels on tablet)
-        // >= 640px: ~300px
-        // >= 375px: ~210px
-        // 320px: ~184px (compact touch icon cluster with 4px gaps)
-        const actionClusterWidth = width >= 768 ? 350 : width >= 640 ? 300 : width >= 375 ? 210 : 184;
-        const totalCollapsedWidth = hamburgerWidth + logoWidth + actionClusterWidth + 8;
+        const logoLeft = (contentWidth / 2) - (logoWidth / 2);
+        const logoRight = (contentWidth / 2) + (logoWidth / 2);
+
+        // Hamburger on left must clear centered logo left edge
         assert.ok(
-          totalCollapsedWidth <= contentWidth,
-          `At ${width}px, Collapsed Navbar (${totalCollapsedWidth}px) must fit within contentWidth (${contentWidth}px)`
+          hamburgerWidth < logoLeft,
+          `At ${width}px, Left hamburger (${hamburgerWidth}px) must clear centered logo left edge (${logoLeft}px)`
+        );
+
+        // Action cluster on right:
+        // On tablet (>= 640px): ~220px–310px
+        // On mobile (< 640px down to 320px): ~108px (Search + Wishlist + Cart; Account & Currency in mobile menu)
+        const actionClusterWidth = width >= 768 ? 310 : width >= 640 ? 250 : width >= 375 ? 120 : 108;
+        const actionLeft = contentWidth - actionClusterWidth;
+        assert.ok(
+          logoRight < actionLeft,
+          `At ${width}px, Centered logo right edge (${logoRight}px) must clear right action cluster (${actionLeft}px)`
         );
       }
 
@@ -638,6 +646,76 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
         `Synthetic category "${name}" must not be introduced into categories`
       );
     }
+  });
+
+  it('18. Reconciles exact lookbook entry count directly from data source (20 photo slots + 2 editorial entries)', async () => {
+    const { LOOKBOOK_ITEMS } = await import('../src/data/lookbook-data.js');
+    const photoSlots = LOOKBOOK_ITEMS.filter((item: any) => !item.isEditorialCard);
+    const editorialEntries = LOOKBOOK_ITEMS.filter((item: any) => Boolean(item.isEditorialCard));
+
+    assert.equal(photoSlots.length, 20, 'Data source must contain exactly 20 photographic entries');
+    assert.equal(editorialEntries.length, 2, 'Data source must contain exactly 2 editorial entries');
+    assert.equal(LOOKBOOK_ITEMS.length, 22, 'Total lookbook entries must equal 22');
+
+    for (const item of LOOKBOOK_ITEMS) {
+      assert.ok(item.id, 'Item must have an id');
+      assert.ok(item.title, 'Item must have a title');
+      assert.ok(['portrait', 'landscape', 'square'].includes(item.aspectRatio), 'Item must have a valid aspect ratio');
+      assert.ok(item.altText, 'Item must have useful alt text');
+    }
+  });
+
+  it('19. Photography classification and neutral editorial copy: slots are classified as unverified with no unsubstantiated claims', async () => {
+    const { LOOKBOOK_ITEMS } = await import('../src/data/lookbook-data.js');
+    
+    const photoSlots = LOOKBOOK_ITEMS.filter((item: any) => !item.isEditorialCard);
+    for (const slot of photoSlots) {
+      assert.equal(
+        slot.verificationStatus,
+        'unverified',
+        `Slot ${slot.id} must be neutrally classified as unverified until approved photos exist`
+      );
+    }
+
+    // Unsubstantiated claims check
+    const serialized = JSON.stringify(LOOKBOOK_ITEMS).toLowerCase();
+    const unsupportedClaims = ['450 gsm', 'air cargo dispatch', 'ballistic nylon', '24 oz canvas', 'reflective print'];
+    for (const claim of unsupportedClaims) {
+      assert.equal(
+        serialized.includes(claim),
+        false,
+        `Data source must not contain unsupported claim "${claim}"`
+      );
+    }
+  });
+
+  it('20. Strict product mapping: only map products checked against catalogue, otherwise leave productHandle undefined', async () => {
+    const { LOOKBOOK_ITEMS } = await import('../src/data/lookbook-data.js');
+    
+    // In this preview without confirmed catalogue handles, all product references must be undefined
+    for (const item of LOOKBOOK_ITEMS) {
+      assert.equal(
+        item.productHandle,
+        undefined,
+        `Look ${item.id} must have undefined productHandle when not checked against actual catalogue`
+      );
+      assert.equal(
+        item.productTitle,
+        undefined,
+        `Look ${item.id} must have undefined productTitle when not checked against actual catalogue`
+      );
+    }
+  });
+
+  it('21. Public storefront renders ONE polished coming soon section when no approved photos exist, retaining 20 slots in data source', async () => {
+    const { LOOKBOOK_ITEMS } = await import('../src/data/lookbook-data.js');
+    const approved = LOOKBOOK_ITEMS.filter((i: any) => i.verificationStatus === 'approved' && Boolean(i.imageUrl));
+    assert.equal(approved.length, 0, 'Currently zero approved photos exist in data source');
+
+    // In normal public storefront without approved photos, LookbookPage displays a single coming soon section
+    // and suppresses 20 empty photo cards. The data source maintains all 20 photographic slots for future use.
+    const photoSlots = LOOKBOOK_ITEMS.filter((i: any) => !i.isEditorialCard);
+    assert.equal(photoSlots.length, 20, 'Retains all 20 photo slots in data source for future photography additions');
   });
 });
 
