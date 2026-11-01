@@ -820,7 +820,59 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    // 3. DEFAULT / HOME PAGE SSR
+    // 3. GALLERY PAGE SSR (/gallery & /lookbook alias)
+    if (type === 'gallery' || pathname === '/gallery' || pathname === '/lookbook') {
+      const title = 'Gallery — Styling & Archive | Sanelow Merchant Store';
+      const description =
+        'AI-generated styling mockups showcasing curated apparel and merchandise styling concepts from the Sanelow collection.';
+      const canonicalUrl = `${baseUrl}/gallery`;
+      const primaryImage = `${baseUrl}/sanelow-logo.jpg`;
+
+      const breadcrumbsJsonLd = generateBreadcrumbSchema([
+        { name: 'Home', url: `${baseUrl}/` },
+        { name: 'Gallery', url: canonicalUrl },
+      ]);
+
+      const bodyHtml = `
+        <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16">
+          <nav aria-label="Breadcrumb" class="mb-6 text-xs font-mono text-zinc-500">
+            <ol class="flex items-center gap-2">
+              <li><a href="/" class="hover:text-black">Home</a></li>
+              <li>/</li>
+              <li class="text-black font-bold" aria-current="page">Gallery</li>
+            </ol>
+          </nav>
+          <div class="border-b border-zinc-200 pb-8 mb-8">
+            <span class="inline-block px-3 py-1 bg-red-50 text-red-600 font-mono text-xs font-bold rounded-full mb-3 uppercase">Gallery • Styling Previews</span>
+            <h1 class="text-3xl sm:text-5xl font-black text-black tracking-tight">The Sanelow Gallery</h1>
+            <p class="text-sm text-zinc-600 mt-2 max-w-2xl leading-relaxed">${escapeHtml(description)}</p>
+          </div>
+          <div class="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-xs font-mono text-zinc-600">
+            <strong>Notice:</strong> AI-generated styling mockups — Illustrative styling previews, not customer photographs. Refer to product photos and descriptions for item details.
+          </div>
+        </section>
+      `;
+
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('X-Robots-Tag', robots.headerValue);
+
+      const fullDoc = renderFullHtmlDocument({
+        title,
+        description,
+        canonicalUrl,
+        ogImage: primaryImage,
+        host,
+        jsonLd: [breadcrumbsJsonLd],
+        bodyHtml,
+        initialData: { type: 'gallery' },
+      });
+
+      res.end(fullDoc);
+      return;
+    }
+
+    // 4. DEFAULT / HOME PAGE SSR
     const defaultTitle = 'Sanelow Merchant Store | Official Streetwear & Merch';
     const defaultDesc =
       'Official Sanelow merchandise store. Exclusive heavyweight hoodies, graphic tees, outerwear and accessories crafted in South Africa.';
