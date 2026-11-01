@@ -11,6 +11,7 @@ interface ProductCardProps {
   onQuickView: (product: Product) => void;
   onAddToCart?: (product: Product, variant: ShopifyVariant) => void;
   onSelect?: (product: Product) => void;
+  priority?: boolean;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -20,6 +21,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onToggleWishlist,
   onQuickView,
   onAddToCart,
+  priority = false,
 }) => {
   const [selectedSize, setSelectedSize] = useState<string>(
     product.sizes.length > 0 ? product.sizes[0] : ''
@@ -110,7 +112,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             src={displayedCardImage}
             alt={product.title}
             className="h-full w-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out motion-reduce:transition-none"
-            loading="lazy"
+            loading={priority ? 'eager' : 'lazy'}
+            fetchPriority={priority ? 'high' : 'auto'}
             width="600"
             height="750"
           />

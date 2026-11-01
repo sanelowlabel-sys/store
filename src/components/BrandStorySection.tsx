@@ -14,12 +14,17 @@ export const BrandStorySection: React.FC = () => {
               <div className="relative rounded-2xl overflow-hidden aspect-[4/5] bg-[#f8fafc] border border-[#e2e8f0] shadow-xs group hover:border-red-600 transition-colors motion-reduce:transition-none">
                 <img
                   src={merchCraftsmanshipImg}
-                  alt="Person wearing official Sanelow Music Merch House Friends Records graphic sweatshirt"
+                  alt="AI-generated styling preview - Sanelow graphic sweatshirt"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 motion-reduce:transition-none"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a]/80 via-transparent to-transparent" />
+                <div className="absolute top-3 left-3 z-10 pointer-events-none">
+                  <span className="px-2 py-0.5 rounded-md bg-[#0f172a]/90 text-white/90 text-[10px] font-mono uppercase tracking-wider shadow-xs">
+                    AI-generated styling preview
+                  </span>
+                </div>
                 <div className="absolute bottom-3 left-3 text-[10px] font-mono font-bold text-white uppercase tracking-wider">
-                  // DIRECT MERCH CRAFTSMANSHIP
+                  // STYLING PREVIEW
                 </div>
               </div>
               <div className="p-4 sm:p-5 rounded-2xl bg-[#f8fafc] border border-[#e2e8f0] space-y-2 shadow-xs hover:border-red-600 transition-colors">
@@ -46,12 +51,17 @@ export const BrandStorySection: React.FC = () => {
               <div className="relative rounded-2xl overflow-hidden aspect-[4/5] bg-[#f8fafc] border border-[#e2e8f0] shadow-xs group hover:border-red-600 transition-colors motion-reduce:transition-none">
                 <img
                   src={merchDropsImg}
-                  alt="Person wearing official Sanelow Music Merch Me and Music graphic hoodie"
+                  alt="AI-generated styling preview - Sanelow graphic hoodie"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 motion-reduce:transition-none"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a]/80 via-transparent to-transparent" />
+                <div className="absolute top-3 left-3 z-10 pointer-events-none">
+                  <span className="px-2 py-0.5 rounded-md bg-[#0f172a]/90 text-white/90 text-[10px] font-mono uppercase tracking-wider shadow-xs">
+                    AI-generated styling preview
+                  </span>
+                </div>
                 <div className="absolute bottom-3 left-3 text-[10px] font-mono font-bold text-white uppercase tracking-wider">
-                  // OFFICIAL MERCH DROPS
+                  // STYLING PREVIEW
                 </div>
               </div>
             </div>

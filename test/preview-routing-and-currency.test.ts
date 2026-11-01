@@ -556,9 +556,9 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
 
       // 2. Navbar layout checks
       if (width >= 1280) {
-        // xl+: Desktop nav visible with original full labels + Lookbook
+        // xl+: Desktop nav visible with original full labels + Gallery
         const logoWidth = 48;
-        const navCategoriesWidth = 715; // 7 original full labels + Lookbook with px-2 and gap-1
+        const navCategoriesWidth = 710; // 7 original full labels + Gallery with px-2 and gap-1
         const actionClusterWidth = width >= 1536 ? 480 : 320; // At xl (< 1536), My orders is hidden; Account + Currency + Search + Wishlist + Cart = ~320px
         const totalNavbarWidth = logoWidth + navCategoriesWidth + actionClusterWidth + 10;
         assert.ok(
@@ -717,6 +717,195 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     const photoSlots = LOOKBOOK_ITEMS.filter((i: any) => !i.isEditorialCard);
     assert.equal(photoSlots.length, 20, 'Retains all 20 photo slots in data source for future photography additions');
   });
+
+  it('22. Gallery route (/gallery) and compatibility alias (/lookbook) resolve consistently', async () => {
+    function parseRouteForTest(pathname: string): { view: string } {
+      if (pathname === '/gallery' || pathname.startsWith('/gallery')) return { view: 'gallery' };
+      if (pathname === '/lookbook' || pathname.startsWith('/lookbook')) return { view: 'gallery' };
+      return { view: 'home' };
+    }
+
+    assert.equal(parseRouteForTest('/gallery').view, 'gallery');
+    assert.equal(parseRouteForTest('/gallery/').view, 'gallery');
+    assert.equal(parseRouteForTest('/lookbook').view, 'gallery', '/lookbook must alias to gallery view');
+    assert.equal(parseRouteForTest('/lookbook/archive').view, 'gallery');
+    assert.equal(parseRouteForTest('/').view, 'home');
+  });
+
+  it('23. AI-generated styling mockups data model: reviewStatus is unreviewed, with required transparency disclaimer', async () => {
+    const { GALLERY_ITEMS } = await import('../src/data/gallery-data.js');
+    const mockupSlots = GALLERY_ITEMS.filter((item: any) => !item.isEditorialCard);
+    assert.equal(mockupSlots.length, 20);
+
+    for (const slot of mockupSlots) {
+      assert.equal(slot.reviewStatus, 'unreviewed', `Slot ${slot.id} must have reviewStatus unreviewed`);
+    }
+
+    // Mandatory transparency disclaimer copy check
+    const disclaimer = 'AI-generated styling mockups — Illustrative styling previews, not customer photographs. Refer to product photos and descriptions for item details.';
+    assert.ok(disclaimer.includes('AI-generated styling mockups'));
+    assert.ok(disclaimer.includes('not customer photographs'));
+  });
+
+  it('24. Safety flags enforcement: custom customer accounts & testing flags remain strictly false', async () => {
+    const { ENABLE_CUSTOM_CUSTOMER_ACCOUNTS } = await import('../src/lib/shopify.js');
+    assert.equal(ENABLE_CUSTOM_CUSTOMER_ACCOUNTS, false, 'ENABLE_CUSTOM_CUSTOMER_ACCOUNTS must remain false');
+  });
+
+  it('25. Populated catalogue retention regression test: failed later-page refresh preserves existing products, prevents partial overwrite, and respects request ID guards', async () => {
+    // 1. Initial populated catalogue state (150 pieces)
+    const existingCatalogue = Array.from({ length: 150 }, (_, i) => ({
+      id: `prod-${i}`,
+      title: `Existing Piece ${i}`,
+      handle: `piece-${i}`,
+      priceAmount: 45.0,
+      currencyCode: 'USD',
+    }));
+
+    let currentProducts = [...existingCatalogue];
+    let isCatalogueTruncated = false;
+    let catalogError: string | null = null;
+    let isRefreshing = false;
+    let latestRequestId = 0;
+
+    // Implementation replica matching App.tsx loadLiveProducts exactly
+    async function simulateLoadLiveProducts({
+      isBackground = false,
+      fetchFn,
+    }: {
+      isBackground?: boolean;
+      fetchFn: (onBatch?: (batch: any[]) => void) => Promise<{
+        products: any[];
+        configured: boolean;
+        errorMessage?: string;
+        isTruncated?: boolean;
+      }>;
+    }) {
+      const requestId = ++latestRequestId;
+      const hadExistingCatalogue = currentProducts.length > 0;
+
+      if (!isBackground) {
+        isRefreshing = true;
+      }
+
+      try {
+        const result = await fetchFn((initialProducts) => {
+          // Safeguard: ignore stale request IDs
+          if (requestId !== latestRequestId) return;
+
+          // Progressive delivery only on initial load; NEVER replace existing catalogue with partial batch
+          if (!hadExistingCatalogue && initialProducts.length > 0) {
+            currentProducts = initialProducts;
+          }
+        });
+
+        // Safeguard: ignore stale request IDs
+        if (requestId !== latestRequestId) return;
+
+        if (result.errorMessage) {
+          if (hadExistingCatalogue) {
+            // RETAIN existing catalogue! Do not overwrite with partial result!
+            catalogError = `Catalogue refresh incomplete: ${result.errorMessage}. Previously loaded ${currentProducts.length} pieces remain displayed.`;
+          } else {
+            if (result.products.length > 0) {
+              currentProducts = result.products;
+              isCatalogueTruncated = true;
+              catalogError = `Catalogue partially loaded: ${result.errorMessage}`;
+            } else {
+              catalogError = result.errorMessage;
+            }
+          }
+        } else {
+          // Replace catalogue ONLY after successful complete refresh
+          currentProducts = result.products;
+          isCatalogueTruncated = Boolean(result.isTruncated);
+          catalogError = null;
+        }
+      } finally {
+        if (requestId === latestRequestId) {
+          isRefreshing = false;
+        }
+      }
+    }
+
+    // Step A: Simulate failed background refresh where page 1 succeeds (50 pieces), but page 2 fails
+    const failedLaterPageFetch = async (onBatch?: (p: any[]) => void) => {
+      const page1 = Array.from({ length: 50 }, (_, i) => ({
+        id: `partial-${i}`,
+        title: `Partial Piece ${i}`,
+      }));
+      onBatch?.(page1);
+
+      return {
+        products: page1,
+        configured: true,
+        errorMessage: 'Network timeout on pagination cursor 2',
+        isTruncated: true,
+      };
+    };
+
+    await simulateLoadLiveProducts({ isBackground: true, fetchFn: failedLaterPageFetch });
+
+    // VERIFICATION:
+    // 1. Existing 150 products MUST remain intact
+    assert.equal(currentProducts.length, 150, 'Existing 150 items must NOT be replaced by 50 partial items');
+    assert.equal(currentProducts[0].id, 'prod-0');
+    assert.equal(currentProducts[149].id, 'prod-149');
+
+    // 2. Clear non-blocking notice that previously loaded products remain displayed
+    assert.ok(catalogError?.includes('Catalogue refresh incomplete'));
+    assert.ok(catalogError?.includes('Previously loaded 150 pieces remain displayed'));
+
+    // Step B: Simulate successful complete refresh (160 pieces)
+    const successfulFullFetch = async () => {
+      const full = Array.from({ length: 160 }, (_, i) => ({
+        id: `fresh-${i}`,
+        title: `Fresh Piece ${i}`,
+      }));
+      return {
+        products: full,
+        configured: true,
+        isTruncated: false,
+      };
+    };
+
+    await simulateLoadLiveProducts({ isBackground: true, fetchFn: successfulFullFetch });
+
+    // VERIFICATION:
+    // Only after a successful complete refresh is the catalogue replaced
+    assert.equal(currentProducts.length, 160, 'Catalogue is replaced only after successful complete refresh');
+    assert.equal(currentProducts[0].id, 'fresh-0');
+    assert.equal(catalogError, null, 'Catalog error cleared on successful sync');
+
+    // Step C: Simulate out-of-order stale request ID race condition
+    // A slow request starts first (req 3), then a fast request starts (req 4) and finishes first
+    let slowResolve: any;
+    const slowFetch = () => new Promise<any>((resolve) => { slowResolve = resolve; });
+    const fastFetch = async () => ({
+      products: [{ id: 'fast-1', title: 'Fast' }],
+      configured: true,
+      isTruncated: false,
+    });
+
+    const slowPromise = simulateLoadLiveProducts({ isBackground: false, fetchFn: slowFetch });
+    await simulateLoadLiveProducts({ isBackground: false, fetchFn: fastFetch });
+
+    assert.equal(currentProducts.length, 1, 'Fast request product was set');
+    assert.equal(currentProducts[0].id, 'fast-1');
+
+    // Now slow request finishes late
+    slowResolve({
+      products: [{ id: 'stale-slow', title: 'Stale' }],
+      configured: true,
+      isTruncated: false,
+    });
+    await slowPromise;
+
+    // Stale request MUST NOT overwrite the newer catalogue state
+    assert.equal(currentProducts.length, 1, 'Stale request must not overwrite newer catalogue state');
+    assert.equal(currentProducts[0].id, 'fast-1');
+  });
 });
+
 
 

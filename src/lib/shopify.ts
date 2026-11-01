@@ -435,7 +435,7 @@ export function transformShopifyProduct(node: any): Product {
 }
 
 // Fetch live catalogue using server-owned GetProducts operation with cursor pagination
-export async function fetchLiveCatalogue(): Promise<{
+export async function fetchLiveCatalogue(onBatch?: (products: Product[]) => void): Promise<{
   products: Product[];
   configured: boolean;
   errorMessage?: string;
@@ -490,6 +490,11 @@ export async function fetchLiveCatalogue(): Promise<{
       if (e?.node) {
         allProducts.push(transformShopifyProduct(e.node));
       }
+    }
+
+    // Immediately deliver available products so user can interact without blocking on subsequent pages
+    if (onBatch && allProducts.length > 0) {
+      onBatch([...allProducts]);
     }
 
     const pageInfo = result.data?.products?.pageInfo;

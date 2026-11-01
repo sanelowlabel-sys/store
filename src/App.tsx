@@ -14,8 +14,8 @@ import { FaqModal } from './components/FaqModal';
 import { TrackOrderModal } from './components/TrackOrderModal';
 import { CustomerPortalModal } from './components/CustomerPortalModal';
 import { CustomerDashboard } from './components/CustomerDashboard';
-import { LookbookPage } from './components/LookbookPage';
-import { MerchLoader } from './components/MerchLoader';
+import { GalleryPage } from './components/GalleryPage';
+import { MerchLoader, MerchProductSkeleton } from './components/MerchLoader';
 import { ShopifySetupBanner } from './components/ShopifySetupBanner';
 
 import {
@@ -54,7 +54,7 @@ import {
 } from 'lucide-react';
 
 interface RouteState {
-  view: 'home' | 'product' | 'collection' | 'account' | 'lookbook';
+  view: 'home' | 'product' | 'collection' | 'account' | 'gallery';
   handle?: string;
   accountSection?: 'overview' | 'orders' | 'order-detail' | 'profile';
   orderId?: string;
@@ -63,7 +63,8 @@ interface RouteState {
 function parseUrlRoute(): RouteState {
   if (typeof window === 'undefined') return { view: 'home' };
   const pathname = window.location.pathname;
-  if (pathname === '/lookbook' || pathname.startsWith('/lookbook')) return { view: 'lookbook' };
+  if (pathname === '/gallery' || pathname.startsWith('/gallery')) return { view: 'gallery' };
+  if (pathname === '/lookbook' || pathname.startsWith('/lookbook')) return { view: 'gallery' };
   const prodMatch = pathname.match(/^\/products\/([a-zA-Z0-9_\-]+)/);
   if (prodMatch) return { view: 'product', handle: prodMatch[1] };
   const colMatch = pathname.match(/^\/collections\/([a-zA-Z0-9_\-]+)/);
@@ -143,6 +144,12 @@ export default function App() {
   const lastFetchTimeRef = useRef<number>(0);
   const backoffDelayRef = useRef<number>(60000); // 60s base
   const catalogueVersionRef = useRef<number | null>(null);
+  const latestRequestIdRef = useRef<number>(0);
+  const productsRef = useRef<Product[]>([]);
+
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -162,22 +169,64 @@ export default function App() {
 
   // 1. Fetch live catalogue from Shopify
   const loadLiveProducts = useCallback(async (isBackground = false) => {
+    const requestId = ++latestRequestIdRef.current;
+    const hadExistingCatalogue = productsRef.current.length > 0;
+
     if (!isBackground) {
       setIsRefreshingCatalog(true);
     }
 
     try {
-      const result = await fetchLiveCatalogue();
+      const result = await fetchLiveCatalogue((initialProducts) => {
+        // Safeguard 3: Stale request ID guard
+        if (requestId !== latestRequestIdRef.current) return;
+
+        // Safeguard 1: On initial load (no existing catalogue), progressively show fetched products
+        // If an existing catalogue is already displayed, do NOT replace it with a partial first batch
+        if (!hadExistingCatalogue && initialProducts.length > 0) {
+          setProducts(initialProducts);
+          setIsConfigured(true);
+          setCatalogError(null);
+        }
+      });
+
+      // Safeguard 3: Prevent older requests from overwriting newer catalogue state
+      if (requestId !== latestRequestIdRef.current) {
+        return;
+      }
+
       lastFetchTimeRef.current = Date.now();
 
       if (!result.configured) {
         setIsConfigured(false);
         setCatalogError(result.errorMessage || 'Shopify Storefront Token is not configured');
-        setProducts([]);
+        if (!hadExistingCatalogue) {
+          setProducts([]);
+        }
       } else if (result.errorMessage) {
-        setCatalogError(result.errorMessage);
+        // Failed later pages behaviour:
+        if (hadExistingCatalogue) {
+          // If an existing catalogue is displayed and a background refresh fails on a later page,
+          // RETAIN that existing catalogue. Do NOT replace it with the partial refresh result!
+          setCatalogError(
+            `Catalogue refresh incomplete: ${result.errorMessage}. Previously loaded ${productsRef.current.length} pieces remain displayed.`
+          );
+          showToast('Refresh incomplete — existing catalogue retained');
+        } else {
+          // On initial load without existing catalogue: show partial results if any were fetched
+          if (result.products.length > 0) {
+            setProducts(result.products);
+            setIsCatalogueTruncated(true);
+            setCatalogError(
+              `Catalogue partially loaded: ${result.errorMessage}. Disclosing ${result.products.length} available pieces.`
+            );
+          } else {
+            setCatalogError(result.errorMessage);
+          }
+        }
         backoffDelayRef.current = Math.min(300000, backoffDelayRef.current * 1.5);
       } else {
+        // Replace existing catalogue ONLY after a successful complete refresh
         setIsConfigured(true);
         setCatalogError(null);
         setProducts(result.products);
@@ -186,10 +235,20 @@ export default function App() {
         backoffDelayRef.current = 60000;
       }
     } catch (err: any) {
-      setCatalogError(err?.message || 'Error connecting to Shopify catalogue');
+      if (requestId === latestRequestIdRef.current) {
+        if (hadExistingCatalogue) {
+          setCatalogError(
+            `Connection issue during refresh: ${err?.message || 'Network error'}. Previously loaded pieces remain displayed.`
+          );
+        } else {
+          setCatalogError(err?.message || 'Error connecting to Shopify catalogue');
+        }
+      }
     } finally {
-      setIsRefreshingCatalog(false);
-      setIsInitialLoading(false);
+      if (requestId === latestRequestIdRef.current) {
+        setIsRefreshingCatalog(false);
+        setIsInitialLoading(false);
+      }
     }
   }, []);
 
@@ -276,11 +335,11 @@ export default function App() {
           document.title = 'Collection Not Found | Sanelow Merchant Store';
         }
       });
-    } else if (route.view === 'lookbook') {
+    } else if (route.view === 'gallery' || (route.view as string) === 'lookbook') {
       setActiveProductPage(null);
       setActiveCollectionPage(null);
       setPageNotFound(false);
-      document.title = 'Lookbook — Editorial Archive | Sanelow Merchant Store';
+      document.title = 'Gallery — Styling & Archive | Sanelow Merchant Store';
 
       const metaRobots = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
       if (metaRobots) {
@@ -572,11 +631,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white text-[#0f172a] flex flex-col font-sans selection:bg-red-600 selection:text-white">
-      {/* Initial load feel - minimal without text */}
-      {isInitialLoading && (
-        <MerchLoader fullscreen={true} />
-      )}
-
       {/* Shopify Setup / Connection Status Banner */}
       <ShopifySetupBanner
         storeDomain={SHOPIFY_STORE_DOMAIN}
@@ -632,7 +686,8 @@ export default function App() {
         }}
         isLoading={pageLoading || isRefreshingCatalog}
         currentView={route.view}
-        onNavigateLookbook={() => navigateTo('/lookbook')}
+        onNavigateGallery={() => navigateTo('/gallery')}
+        onNavigateLookbook={() => navigateTo('/gallery')}
       />
 
       {/* ROUTE 1: Dedicated Product Detail Page (/products/{handle}) */}
@@ -731,10 +786,10 @@ export default function App() {
         </main>
       )}
 
-      {/* ROUTE 4: Dedicated Lookbook Page (/lookbook) */}
-      {route.view === 'lookbook' && (
+      {/* ROUTE 4: Dedicated Gallery Page (/gallery, with /lookbook alias) */}
+      {(route.view === 'gallery' || (route.view as string) === 'lookbook') && (
         <main className="flex-1 w-full min-w-0">
-          <LookbookPage
+          <GalleryPage
             onNavigateHome={() => navigateTo('/')}
             onNavigateProduct={(handle) => navigateTo(`/products/${handle}`)}
           />
@@ -754,7 +809,7 @@ export default function App() {
           />
 
           {/* Product Catalog Section */}
-          <main ref={catalogRef} className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 w-full">
+          <main ref={catalogRef} id="catalogue" className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 w-full scroll-mt-28 sm:scroll-mt-32">
             {/* Catalog Header & Controls Bar */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-[#e2e8f0]">
               <div>
@@ -803,7 +858,22 @@ export default function App() {
                     <span className="underline">Sync</span>
                   </button>
                 </div>
-                {isCatalogueTruncated && (
+                {catalogError && products.length > 0 && (
+                  <div className="mt-2.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 font-mono flex items-center justify-between gap-2 animate-in fade-in">
+                    <div className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
+                      <span>{catalogError}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCatalogError(null)}
+                      className="text-amber-700 hover:text-amber-900 text-[11px] underline shrink-0 cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+                {isCatalogueTruncated && !catalogError && (
                   <div className="mt-2.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 font-mono flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
                     <span>Incomplete results notice: Safety ceiling of 1,000 products reached. Catalogue display is limited to the first 1,000 items.</span>
@@ -868,8 +938,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* Product Grid or Empty State */}
-            {products.length === 0 ? (
+            {/* Product Grid, Loading Skeleton, or Empty State */}
+            {isRefreshingCatalog && products.length === 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-8">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <MerchProductSkeleton key={i} />
+                ))}
+              </div>
+            ) : products.length === 0 ? (
               <div className="py-20 text-center space-y-5 max-w-lg mx-auto">
                 <div className="w-16 h-16 rounded-2xl bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center mx-auto text-red-600 shadow-xs">
                   <ShoppingBag className="w-8 h-8" />
@@ -936,10 +1012,11 @@ export default function App() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pt-8">
-                {filteredProducts.map((product) => (
+                {filteredProducts.map((product, idx) => (
                   <ProductCard
                     key={product.id}
                     product={product}
+                    priority={idx < 4}
                     currency={currency}
                     isWishlisted={isProductInWishlist(product.id)}
                     onToggleWishlist={handleToggleWishlist}

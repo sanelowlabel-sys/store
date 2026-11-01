@@ -21,6 +21,14 @@
       "destination": "/api/render?type=collection&handle=:handle"
     },
     {
+      "source": "/gallery",
+      "destination": "/api/render?type=gallery"
+    },
+    {
+      "source": "/lookbook",
+      "destination": "/api/render?type=gallery"
+    },
+    {
       "source": "/api/auth/:action",
       "destination": "/api/auth?action=:action"
     },

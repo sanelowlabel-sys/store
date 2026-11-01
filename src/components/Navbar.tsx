@@ -24,6 +24,7 @@ interface NavbarProps {
   onSearchChange: (q: string) => void;
   isLoading?: boolean;
   currentView?: string;
+  onNavigateGallery?: () => void;
   onNavigateLookbook?: () => void;
 }
 
@@ -47,12 +48,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSearchChange,
   isLoading = false,
   currentView = 'home',
+  onNavigateGallery,
   onNavigateLookbook,
 }) => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false);
 
+  const handleGalleryNavigation = onNavigateGallery || onNavigateLookbook;
   const isCustomAccountsActive = isCustomAccountsEnabled || Boolean(customerSession?.isTester);
 
   const categories: { key: Category; label: string }[] = [
@@ -85,11 +88,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         </span>
       </div>
 
-      {/* Main Bar */}
+      {/* Main Bar: CSS Grid with 1fr auto 1fr on collapsed viewports (< xl) guarantees exact center alignment */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="relative flex items-center justify-between h-18 sm:h-20 gap-2 sm:gap-4">
-          {/* Mobile menu trigger - left aligned */}
-          <div className="flex items-center xl:hidden shrink-0 z-10">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center h-18 sm:h-20 gap-2 sm:gap-4 xl:flex xl:items-center xl:justify-between w-full">
+          {/* Col 1 on collapsed viewports (< xl): Left-aligned mobile hamburger menu trigger */}
+          <div className="flex items-center justify-start xl:hidden shrink-0 z-10">
             <button
               id="mobile-menu-btn"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -100,29 +103,33 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
 
-          {/* Brand Logo Only - Centred relative to header container on collapsed/tablet (< xl), left on desktop (xl+) */}
-          <a
-            href="/"
-            id="navbar-brand-logo"
-            className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded-xl hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 xl:static xl:top-auto xl:left-auto xl:translate-x-0 xl:translate-y-0 z-10"
-            onClick={(e) => {
-              if (!e.metaKey && !e.ctrlKey) {
-                e.preventDefault();
-                onSelectCategory('all');
-              }
-            }}
-            aria-label="Sanelow Store Home"
-          >
-            <div className="relative flex items-center justify-center w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden bg-white border border-[#e2e8f0] shadow-xs group shrink-0">
-              <img
-                src="/sanelow-logo.jpg"
-                alt="Sanelow Store Logo"
-                className="w-full h-full object-contain p-0.5 group-hover:scale-105 transition-transform motion-reduce:transition-none"
-              />
-            </div>
-          </a>
+          {/* Col 2 on collapsed (< xl): Mathematically centered brand logo; Left-aligned on desktop (xl+) */}
+          <div className="flex items-center justify-center xl:block shrink-0 z-10">
+            <a
+              href="/"
+              id="navbar-brand-logo"
+              className="flex items-center cursor-pointer select-none shrink-0 p-1 rounded-xl hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+              onClick={(e) => {
+                if (!e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  onSelectCategory('all');
+                }
+              }}
+              aria-label="Sanelow Store Home"
+            >
+              <div className="relative flex items-center justify-center w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden bg-white border border-[#e2e8f0] shadow-xs group shrink-0">
+                <img
+                  src="/sanelow-logo.jpg"
+                  alt="Sanelow Store Logo"
+                  width="48"
+                  height="48"
+                  className="w-full h-full object-contain p-0.5 group-hover:scale-105 transition-transform motion-reduce:transition-none"
+                />
+              </div>
+            </a>
+          </div>
 
-          {/* Desktop Categories & Lookbook - Shown on xl+ where full original labels fit */}
+          {/* Desktop Categories & Gallery - Visible on xl+ where full navigation fits without collision */}
           <nav className="hidden xl:flex items-center gap-1 xl:gap-1.5" aria-label="Merchandise Categories">
             {categories.map((cat) => (
               <a
@@ -136,7 +143,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }
                 }}
                 className={`px-2 2xl:px-2.5 py-1.5 rounded-xl text-xs font-semibold tracking-normal transition-all cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
-                  currentCategory === cat.key && currentView !== 'lookbook'
+                  currentCategory === cat.key && currentView !== 'gallery' && currentView !== 'lookbook'
                     ? 'bg-red-600 text-white shadow-xs'
                     : 'text-[#64748b] hover:text-[#0f172a] hover:bg-[#f8fafc]'
                 }`}
@@ -145,28 +152,28 @@ export const Navbar: React.FC<NavbarProps> = ({
               </a>
             ))}
 
-            {/* Lookbook link in desktop navigation */}
+            {/* Gallery link in desktop navigation (renamed from Lookbook) */}
             <a
-              id="nav-link-lookbook"
-              href="/lookbook"
+              id="nav-link-gallery"
+              href="/gallery"
               onClick={(e) => {
                 if (!e.metaKey && !e.ctrlKey) {
                   e.preventDefault();
-                  onNavigateLookbook?.();
+                  handleGalleryNavigation?.();
                 }
               }}
               className={`px-2 2xl:px-2.5 py-1.5 rounded-xl text-xs font-semibold tracking-normal transition-all cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none ${
-                currentView === 'lookbook'
+                currentView === 'gallery' || currentView === 'lookbook'
                   ? 'bg-red-600 text-white shadow-xs'
                   : 'text-[#64748b] hover:text-[#0f172a] hover:bg-[#f8fafc]'
               }`}
             >
-              <span>Lookbook</span>
+              <span>Gallery</span>
             </a>
           </nav>
 
-          {/* Action Buttons: My orders, Currency, Search, Sign in / Create account, Wishlist, Cart */}
-          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0 z-10 ml-auto">
+          {/* Col 3 on collapsed (< xl): Action Buttons aligned right; xl:ml-auto on desktop */}
+          <div className="flex items-center justify-end gap-1 sm:gap-2.5 shrink-0 z-10 xl:ml-auto">
             {/* My orders link - preserved on 2xl+, accessible via mobile menu on other viewports */}
             <a
               id="nav-my-orders-link"
@@ -271,11 +278,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </a>
 
-            {/* Wishlist Button */}
+            {/* Wishlist Button - visible on >= 380px, accessible via mobile menu on narrow viewports */}
             <button
               id="wishlist-drawer-btn"
               onClick={onOpenWishlist}
-              className="relative p-2 text-[#64748b] hover:text-[#0f172a] rounded-xl hover:bg-[#f8fafc] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
+              className="relative hidden min-[380px]:flex p-2 text-[#64748b] hover:text-[#0f172a] rounded-xl hover:bg-[#f8fafc] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               aria-label="View Wishlist"
             >
               <Heart className="w-4 h-4" />
@@ -348,37 +355,60 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }
                 }}
                 className={`text-left px-3 py-2 rounded-lg text-xs font-semibold ${
-                  currentCategory === cat.key && currentView !== 'lookbook' ? 'bg-red-50 text-red-600 font-bold' : 'text-[#0f172a] hover:bg-[#f8fafc]'
+                  currentCategory === cat.key && currentView !== 'gallery' && currentView !== 'lookbook' ? 'bg-red-50 text-red-600 font-bold' : 'text-[#0f172a] hover:bg-[#f8fafc]'
                 }`}
               >
                 {cat.label}
               </a>
             ))}
 
-            {/* Editorial Features Section */}
+            {/* Gallery Section in Mobile Menu */}
             <div className="mt-2 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
               <div className="px-3 py-1 text-[10px] font-mono uppercase font-bold text-[#64748b]">
                 Editorial & Archive
               </div>
               <a
-                id="mobile-nav-lookbook"
-                href="/lookbook"
+                id="mobile-nav-gallery"
+                href="/gallery"
                 onClick={(e) => {
                   if (!e.metaKey && !e.ctrlKey) {
                     e.preventDefault();
-                    onNavigateLookbook?.();
+                    handleGalleryNavigation?.();
                     setIsMobileMenuOpen(false);
                   }
                 }}
                 className={`text-left px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-between ${
-                  currentView === 'lookbook' ? 'bg-red-50 text-red-600 font-bold' : 'text-[#0f172a] hover:bg-[#f8fafc]'
+                  currentView === 'gallery' || currentView === 'lookbook' ? 'bg-red-50 text-red-600 font-bold' : 'text-[#0f172a] hover:bg-[#f8fafc]'
                 }`}
               >
-                <span>Lookbook — Merch in the Wild</span>
+                <span>Gallery — Styling & Archive</span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-bold uppercase">
-                  Gallery
+                  Curated
                 </span>
               </a>
+            </div>
+
+            {/* Mobile Wishlist Access */}
+            <div className="mt-2 pt-2 border-t border-[#e2e8f0] flex flex-col gap-1">
+              <button
+                type="button"
+                id="mobile-nav-wishlist"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onOpenWishlist();
+                }}
+                className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold text-[#0f172a] hover:bg-[#f8fafc] transition-colors cursor-pointer text-left"
+              >
+                <span className="flex items-center gap-2">
+                  <Heart className="w-4 h-4 text-red-600" />
+                  <span>Saved Wishlist</span>
+                </span>
+                {wishlistCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-mono text-[10px] font-bold">
+                    {wishlistCount}
+                  </span>
+                )}
+              </button>
             </div>
 
             {/* Mobile Currency Selection */}

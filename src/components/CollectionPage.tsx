@@ -27,7 +27,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
   }, [collection]);
 
   return (
-    <div className="min-h-screen bg-white text-[#0f172a] pt-24 pb-20">
+    <div id="collection-main" className="min-h-screen bg-white text-[#0f172a] pt-28 sm:pt-32 pb-20 scroll-mt-28 sm:scroll-mt-32">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Breadcrumb Navigation with crawlable links */}
         <nav aria-label="Breadcrumb" className="mb-6">
