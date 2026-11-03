@@ -50,6 +50,7 @@ export const DEFAULT_CURRENCY =
   'USD';
 
 const CART_STORAGE_KEY = 'sanelow_shopify_cart_id';
+export const STORE_CONTACT_EMAIL = 'merch@sanelowmusiclabel.co.za';
 
 // Clean currency formatter using native Intl with South Africa context and explicit USD display
 export function formatPrice(amount: number | string, currency: string = DEFAULT_CURRENCY): string {
