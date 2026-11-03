@@ -9,7 +9,7 @@ import {
   AlertTriangle,
   Clock,
 } from 'lucide-react';
-import { SHOPIFY_CUSTOMER_ACCOUNT_URL } from '../lib/shopify';
+import { SHOPIFY_CUSTOMER_ACCOUNT_URL, STORE_CONTACT_EMAIL } from '../lib/shopify';
 
 interface TrackOrderModalProps {
   isOpen: boolean;
@@ -158,7 +158,7 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({
           )}
 
           <a
-            href="mailto:meandmusicdistributors@gmail.com"
+            href={`mailto:${STORE_CONTACT_EMAIL}`}
             className="flex-1 py-3 px-4 rounded-xl border border-[#e2e8f0] hover:border-red-600 text-[#0f172a] text-xs font-mono font-semibold uppercase text-center flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
           >
             <Mail className="w-3.5 h-3.5 text-red-600" />
