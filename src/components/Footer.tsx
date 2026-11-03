@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowRight, Check, ShieldCheck, Truck, HelpCircle, Clock, RefreshCw, Lock, User } from 'lucide-react';
-import { SHOPIFY_CUSTOMER_ACCOUNT_URL } from '../lib/shopify';
+import { SHOPIFY_CUSTOMER_ACCOUNT_URL, STORE_CONTACT_EMAIL } from '../lib/shopify';
 
 interface FooterProps {
   onOpenFaq: () => void;
@@ -197,10 +197,10 @@ export const Footer: React.FC<FooterProps> = ({
             <div className="p-3 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-[11px] font-mono text-[#0f172a] space-y-1 shadow-xs">
               <span className="text-red-600 font-bold block">DIRECT EMAIL:</span>
               <a
-                href="mailto:meandmusicdistributors@gmail.com"
+               href={`mailto:${STORE_CONTACT_EMAIL}`}
                 className="text-[#0f172a] font-semibold hover:underline block break-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
               >
-                meandmusicdistributors@gmail.com
+                {STORE_CONTACT_EMAIL}
               </a>
             </div>
           </div>
