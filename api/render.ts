@@ -90,6 +90,15 @@ export function generateOrganizationSchema(baseUrl: string) {
     name: 'Sanelow Merchant Store',
     url: baseUrl,
     logo: `${baseUrl}/sanelow-logo.jpg`,
+        email: 'merch@sanelowmusiclabel.co.za',
+    contactPoint: [
+      {
+        '@type': 'ContactPoint',
+        email: 'merch@sanelowmusiclabel.co.za',
+        contactType: 'customer service',
+      },
+    ],
+
     sameAs: [
       'https://sanelowmusiclabel.co.za',
     ],
