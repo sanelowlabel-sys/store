@@ -49,8 +49,10 @@ export const DEFAULT_CURRENCY =
   (typeof process !== 'undefined' && (process.env?.DEFAULT_CURRENCY || process.env?.VITE_DEFAULT_CURRENCY)) ||
   'USD';
 
-const CART_STORAGE_KEY = 'sanelow_shopify_cart_id';
+// Centralized customer-facing store contact email
 export const STORE_CONTACT_EMAIL = 'merch@sanelowmusiclabel.co.za';
+
+const CART_STORAGE_KEY = 'sanelow_shopify_cart_id';
 
 // Clean currency formatter using native Intl with South Africa context and explicit USD display
 export function formatPrice(amount: number | string, currency: string = DEFAULT_CURRENCY): string {
@@ -972,29 +974,15 @@ export function transformCustomerProfile(raw: any): CustomerProfile {
 
 // Fetch session and auth status from server
 export async function fetchCustomerSession(): Promise<CustomerSession> {
-  try {
-    const res = await fetch('/api/auth?action=session', {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      return {
-        authenticated: false,
-        configured: Boolean(SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID),
-        enabled: ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
-        hostedFallbackUrl: SHOPIFY_CUSTOMER_ACCOUNT_URL || 'https://shopify.com/79461089448/account',
-      };
-    }
-    return await res.json();
-  } catch {
-    return {
-      authenticated: false,
-      configured: Boolean(SHOPIFY_CUSTOMER_ACCOUNT_CLIENT_ID),
-      enabled: ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
-      hostedFallbackUrl: SHOPIFY_CUSTOMER_ACCOUNT_URL || 'https://shopify.com/79461089448/account',
-    };
+  const res = await fetch('/api/auth?action=session', {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    throw new Error(`Session request failed: HTTP ${res.status}`);
   }
+  return await res.json();
 }
 
 // Fetch dashboard customer data (profile + first 10 orders)
@@ -1118,7 +1106,7 @@ export async function fetchCustomerProfileData(): Promise<{
 }
 
 // Log customer out
-export async function logoutCustomer(): Promise<{ success: boolean; logoutUrl?: string }> {
+export async function logoutCustomer(): Promise<{ success: boolean; logoutUrl?: string; error?: string }> {
   try {
     const res = await fetch('/api/auth?action=logout', {
       method: 'POST',
@@ -1128,13 +1116,70 @@ export async function logoutCustomer(): Promise<{ success: boolean; logoutUrl?: 
       },
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      return { success: true, logoutUrl: data.logoutUrl };
+    if (!res.ok) {
+      let errMessage = `Logout failed: HTTP ${res.status}`;
+      try {
+        const errData = await res.json();
+        if (errData && typeof errData === 'object' && (errData.error || errData.message)) {
+          errMessage = errData.error || errData.message;
+        }
+      } catch {
+        // Response was not JSON
+      }
+      return {
+        success: false,
+        error: errMessage,
+      };
     }
-  } catch {
-    // Ignore error
+
+    let data: any;
+    try {
+      data = await res.json();
+    } catch {
+      return {
+        success: false,
+        error: 'Invalid response format received from logout service.',
+      };
+    }
+
+    if (!data || typeof data !== 'object' || data.success !== true) {
+      return {
+        success: false,
+        error: (data && typeof data === 'object' && (data.error || data.message)) || 'Logout service did not confirm session termination.',
+      };
+    }
+
+    const logoutUrl = typeof data.logoutUrl === 'string' && data.logoutUrl.trim() ? data.logoutUrl.trim() : '/account';
+    return {
+      success: true,
+      logoutUrl,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Network error during sign out.',
+    };
   }
-  return { success: true, logoutUrl: '/account' };
 }
+
+export {
+  type WishlistScope,
+  type WishlistState,
+  type WishlistTransitionResult,
+  type WishlistAction,
+  type WishlistListener,
+  type WishlistStorageAdapter,
+  GUEST_WISHLIST_STORAGE_KEY,
+  getWishlistStorageKey,
+  loadWishlistForScope,
+  saveWishlistForScope,
+  getWishlistNotificationMessage,
+  applyWishlistToggle,
+  wishlistReducer,
+  executeWishlistToggle,
+  WishlistCoordinator,
+  createWishlistCoordinator,
+  defaultWishlistCoordinator,
+} from './wishlist';
+
 
