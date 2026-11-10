@@ -11,6 +11,8 @@ interface WishlistDrawerProps {
   onRemoveFromWishlist: (product: Product) => void;
   onAddToCart: (product: Product) => void;
   onQuickView: (product: Product) => void;
+  isWishlistDisabled?: boolean;
+  onRetrySession?: () => void;
 }
 
 export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
@@ -21,6 +23,8 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
   onRemoveFromWishlist,
   onAddToCart,
   onQuickView,
+  isWishlistDisabled,
+  onRetrySession,
 }) => {
   if (!isOpen) return null;
 
@@ -58,7 +62,30 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
 
         {/* List */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {wishlist.length === 0 ? (
+          {isWishlistDisabled ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
+              <div className="w-16 h-16 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shadow-xs">
+                <Info className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-base font-heading font-extrabold text-[#0f172a]">
+                  Session Unresolved
+                </h3>
+                <p className="text-xs text-[#64748b] mt-1 max-w-xs leading-relaxed">
+                  Your customer session is currently verifying. Saved items are temporarily hidden until confirmed.
+                </p>
+                {onRetrySession && (
+                  <button
+                    type="button"
+                    onClick={onRetrySession}
+                    className="mt-3 px-3 py-1.5 rounded-lg bg-[#0f172a] text-white text-xs font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    Retry Verification
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : wishlist.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
               <div className="w-16 h-16 rounded-full bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center text-[#64748b] shadow-xs">
                 <Heart className="w-8 h-8" />

@@ -63,6 +63,8 @@ export function CustomerDashboard({
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   // Pagination for Orders tab
   const [hasNextPage, setHasNextPage] = useState(false);
@@ -159,12 +161,38 @@ export function CustomerDashboard({
 
   // Handle Logout
   async function handleLogout() {
-    const res = await logoutCustomer();
-    if (res.logoutUrl) {
-      window.location.href = res.logoutUrl;
-    } else {
-      window.location.reload();
+    if (isLoggingOut) return; // Prevent duplicate logout submissions
+    setIsLoggingOut(true);
+    setLogoutError(null);
+
+    // Dispatch ONLY customer-logout-started (premature customer-session-changed removed!)
+    window.dispatchEvent(new Event('customer-logout-started'));
+
+    try {
+      const res = await logoutCustomer();
+      if (res.success) {
+        if (res.logoutUrl) {
+          window.location.href = res.logoutUrl;
+        } else {
+          window.location.reload();
+        }
+      } else {
+        setIsLoggingOut(false);
+        setLogoutError(res.error || 'Failed to sign out. Please try again.');
+        window.dispatchEvent(new CustomEvent('customer-logout-failed', { detail: { error: res.error } }));
+      }
+    } catch (err: any) {
+      setIsLoggingOut(false);
+      setLogoutError(err?.message || 'Network error during sign out.');
+      window.dispatchEvent(new CustomEvent('customer-logout-failed', { detail: { error: err?.message } }));
     }
+  }
+
+  function handleResumeSession() {
+    setLogoutError(null);
+    setIsLoggingOut(false);
+    window.dispatchEvent(new Event('customer-logout-recovered'));
+    loadDashboard();
   }
 
   // Find active order for detail view
@@ -332,6 +360,73 @@ export function CustomerDashboard({
   }
 
   // --------------------------------------------------------------------------
+  // STATE C.1: Logout In Progress
+  // --------------------------------------------------------------------------
+  if (isLoggingOut && !logoutError) {
+    return (
+      <div className="min-h-[500px] flex flex-col items-center justify-center p-8 bg-zinc-50 border-y border-zinc-200 font-sans">
+        <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-xs font-mono uppercase tracking-widest text-zinc-600">
+          Signing Out Securely...
+        </p>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // STATE C.2: Logout Error Recovery View
+  // --------------------------------------------------------------------------
+  if (logoutError) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 md:py-24 font-sans">
+        <div className="bg-white border border-red-200 rounded-2xl p-6 md:p-10 shadow-xs text-center space-y-6">
+          <div className="w-16 h-16 mx-auto rounded-full bg-red-50 border border-red-200 flex items-center justify-center text-red-600 shadow-xs">
+            <AlertTriangle className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-2xl font-heading font-extrabold uppercase tracking-tight text-[#0f172a]">
+              Sign Out Incomplete
+            </h1>
+            <p className="text-xs md:text-sm text-[#64748b] max-w-md mx-auto leading-relaxed">
+              We encountered an issue terminating your customer session. To protect your account security, dashboard access is locked until sign out succeeds or you explicitly resume your session.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-red-50/50 border border-red-200 text-left space-y-1">
+            <div className="flex items-center gap-2 text-xs font-bold text-red-900 font-mono uppercase">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>Error Details</span>
+            </div>
+            <p className="text-xs text-red-700 font-mono break-all">{logoutError}</p>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              type="button"
+              disabled={isLoggingOut}
+              onClick={handleLogout}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-red-600 hover:bg-[#b91c1c] text-white rounded-xl text-xs font-semibold uppercase tracking-wider transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoggingOut ? 'animate-spin' : ''}`} />
+              <span>{isLoggingOut ? 'Retrying Sign Out...' : 'Retry Sign Out'}</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isLoggingOut}
+              onClick={handleResumeSession}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-white hover:bg-[#f8fafc] text-[#0f172a] border border-[#e2e8f0] rounded-xl text-xs font-semibold uppercase tracking-wider transition-colors shadow-xs cursor-pointer"
+            >
+              <span>Resume Session</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
   // STATE D: Authenticated Dashboard (Overview, Orders, Order Details, Profile)
   // --------------------------------------------------------------------------
   const customerDisplayName = profile?.displayName || session.customer?.name || 'Sanelow Collector';
@@ -370,11 +465,12 @@ export function CustomerDashboard({
 
               <button
                 type="button"
+                disabled={isLoggingOut}
                 onClick={handleLogout}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 hover:text-red-300 text-xs font-semibold uppercase tracking-wider transition-colors border border-red-900/30 cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-400 hover:text-red-300 text-xs font-semibold uppercase tracking-wider transition-colors border border-red-900/30 cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none disabled:opacity-50"
               >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Sign Out</span>
+                <LogOut className={`w-3.5 h-3.5 ${isLoggingOut ? 'animate-spin' : ''}`} />
+                <span>{isLoggingOut ? 'Signing Out...' : 'Sign Out'}</span>
               </button>
             </div>
           </div>
@@ -504,7 +600,7 @@ export function CustomerDashboard({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-white border border-[#e2e8f0] rounded-2xl p-5 shadow-xs space-y-1 hover:border-red-600 transition-colors">
                     <span className="text-[10px] font-mono uppercase tracking-widest text-[#64748b]">
-                      Total Orders Placed
+                      Orders shown
                     </span>
                     <p className="text-2xl font-heading font-extrabold text-[#0f172a]">{orders.length}</p>
                     <span className="text-[11px] text-[#64748b]">Via Shopify Checkout</span>
@@ -906,11 +1002,8 @@ export function CustomerDashboard({
                       </div>
 
                       {activeOrder.fulfillments.length === 0 ? (
-                        <div className="p-4 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs text-[#64748b] space-y-1">
-                          <p className="font-bold text-[#0f172a]">Awaiting Fulfillment & Courier Dispatch</p>
-                          <p>
-                            Your piece is being prepared by our production atelier. Once courier waybills and tracking are generated in Shopify, courier updates will appear here automatically.
-                          </p>
+                        <div className="p-4 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs text-[#64748b]">
+                          <p className="font-semibold text-[#0f172a]">No tracking information is available for this order yet.</p>
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -978,7 +1071,7 @@ export function CustomerDashboard({
                                 </div>
                               ) : (
                                 <p className="text-xs text-[#64748b]">
-                                  Package is prepared. Tracking link will sync once scanned by the courier.
+                                  No tracking information is available for this fulfillment yet.
                                 </p>
                               )}
                             </div>
