@@ -20,6 +20,13 @@ export const TESTER_COOKIE_NAME = 'sanelow_tester_sess';
 export const TESTER_SESSION_TTL_SECONDS = 4 * 60 * 60; // 4 hours
 export const CUSTOMER_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 export const TESTER_KILL_SWITCH_KEY = 'sanelow:tester_kill_switch';
+export const LEGACY_TESTER_KILL_SWITCH_KEY_1 = 'sanelow:testing_kill_switch';
+export const LEGACY_TESTER_KILL_SWITCH_KEY_2 = 'sanelow:tester:kill_switch';
+export const ALL_TESTER_KILL_SWITCH_KEYS = [
+  TESTER_KILL_SWITCH_KEY,
+  LEGACY_TESTER_KILL_SWITCH_KEY_1,
+  LEGACY_TESTER_KILL_SWITCH_KEY_2,
+] as const;
 export const TESTER_PENDING_CLEANUPS_KEY = 'sanelow:tester_pending_cleanups';
 export const TESTER_RATE_LIMIT_PREFIX = 'sanelow:ratelimit:tester:';
 export const TESTER_MAX_ATTEMPTS = 5;
@@ -58,6 +65,7 @@ export interface StoredSession {
   customerId?: string;
   customerEmail?: string;
   customerName?: string;
+  testerSessionId?: string; // Associated tester session ID for tester-linked customer accounts
   createdAt: number;
   updatedAt: number;
   version?: number; // Monotonically increasing version counter for optimistic concurrency
@@ -155,7 +163,7 @@ export function decryptAtRest<T = any>(encryptedString: string): T | null {
 // ============================================================================
 export interface CommitRefreshResult {
   success: boolean;
-  error?: 'LOCK_LOST' | 'SESSION_NOT_FOUND' | 'VERSION_MISMATCH' | 'STORAGE_ERROR';
+  error?: 'LOCK_LOST' | 'SESSION_NOT_FOUND' | 'VERSION_MISMATCH' | 'STORAGE_ERROR' | 'TESTER_REVOKED' | 'CLEANUP_INDEX_MISSING';
 }
 
 export interface SessionStoreAdapter {
@@ -170,7 +178,8 @@ export interface SessionStoreAdapter {
     lockToken: string,
     expectedVersion: number,
     updatedSession: StoredSession,
-    ttlSeconds: number
+    ttlSeconds: number,
+    testerSessionId?: string
   ): Promise<CommitRefreshResult>;
   getRaw?(key: string): Promise<string | null>;
   setRaw?(key: string, value: string, ttlSeconds?: number): Promise<void>;
@@ -181,7 +190,8 @@ export interface SessionStoreAdapter {
   smembersRaw?(key: string): Promise<string[]>;
   linkTesterCustomerSession?(
     testerSessionId: string,
-    customerSessionId: string
+    customerSessionId: string,
+    ttlSeconds?: number
   ): Promise<{ success: boolean; reason?: string }>;
   markTesterSessionRevoked?(
     testerSessionId: string,
@@ -306,14 +316,25 @@ export class UpstashRedisSessionStore implements SessionStoreAdapter {
     lockToken: string,
     expectedVersion: number,
     updatedSession: StoredSession,
-    ttlSeconds: number
+    ttlSeconds: number,
+    testerSessionId?: string
   ): Promise<CommitRefreshResult> {
     const sessionKey = `sanelow:cust_sess:${sessionId}`;
     const newVersion = expectedVersion + 1;
     updatedSession.version = newVersion;
     const payloadWithEnvelope = `${newVersion}:${encryptAtRest(updatedSession)}`;
 
-    // Single Redis Lua operation checking lock ownership, session existence, and version
+    const custIdsKey = testerSessionId ? `sanelow:tester_cust_ids:${testerSessionId}` : '';
+    const testerKey = testerSessionId ? `sanelow:tester_sess:${testerSessionId}` : '';
+    const killKey = TESTER_KILL_SWITCH_KEY;
+    const legacyKillKey1 = LEGACY_TESTER_KILL_SWITCH_KEY_1;
+    const legacyKillKey2 = LEGACY_TESTER_KILL_SWITCH_KEY_2;
+    const nowMs = Date.now();
+
+    // Single Redis Lua operation checking lock ownership, session existence, version,
+    // and if tester-linked: canonical/legacy kill-switches, strict fail-closed tester expiry,
+    // cleanup-index membership, and cleanup-index retention extension preserving indefinite (-1) retention.
+    // Retaining cleanup records longer MUST NOT extend the tester's absolute access expiry (KEYS[4] untouched).
     const script = `local currentLock = redis.call("get", KEYS[1])
 if not currentLock or currentLock ~= ARGV[1] then
   return "ERR_LOCK_LOST"
@@ -336,21 +357,101 @@ if currentVer ~= ARGV[2] then
   return "ERR_VERSION_MISMATCH"
 end
 
+-- Tester session & cleanup index coordination
+if #KEYS >= 5 and KEYS[3] ~= "" and KEYS[3] ~= "none" then
+  -- 1. Check all kill switches (canonical and legacy keys)
+  local killVal = redis.call("get", KEYS[5])
+  local legKill1 = #KEYS >= 6 and redis.call("get", KEYS[6]) or nil
+  local legKill2 = #KEYS >= 7 and redis.call("get", KEYS[7]) or nil
+  if killVal == "1" or legKill1 == "1" or legKill2 == "1" then
+    redis.call("del", KEYS[2])
+    redis.call("del", KEYS[1])
+    return "ERR_TESTER_REVOKED"
+  end
+
+  -- 2. Verify tester session existence and structure
+  local testerVal = redis.call("get", KEYS[4])
+  if not testerVal then
+    redis.call("del", KEYS[2])
+    redis.call("del", KEYS[1])
+    return "ERR_TESTER_REVOKED"
+  end
+
+  local ok, testerParsed = pcall(cjson.decode, testerVal)
+  if not ok or type(testerParsed) ~= "table" then
+    redis.call("del", KEYS[2])
+    redis.call("del", KEYS[1])
+    return "ERR_TESTER_REVOKED"
+  end
+
+  if testerParsed.revoked == true or testerParsed.revoked == "true" then
+    redis.call("del", KEYS[2])
+    redis.call("del", KEYS[1])
+    return "ERR_TESTER_REVOKED"
+  end
+
+  -- 3. Fail-closed expiry validation: reject missing/non-numeric timestamps and reject nowMs >= expiresAt
+  local nowMs = tonumber(ARGV[6])
+  local createdAt = tonumber(testerParsed.createdAt)
+  local expiresAt = tonumber(testerParsed.expiresAt)
+  if not nowMs or not createdAt or not expiresAt then
+    redis.call("del", KEYS[2])
+    redis.call("del", KEYS[1])
+    return "ERR_TESTER_REVOKED"
+  end
+
+  if expiresAt <= createdAt or nowMs >= expiresAt or createdAt > nowMs + 60000 then
+    redis.call("del", KEYS[2])
+    redis.call("del", KEYS[1])
+    return "ERR_TESTER_REVOKED"
+  end
+
+  -- 4. Verify membership in cleanup index: fail closed if missing or unlinked
+  local isMember = redis.call("sismember", KEYS[3], ARGV[5])
+  if isMember ~= 1 then
+    redis.call("del", KEYS[2])
+    redis.call("del", KEYS[1])
+    return "ERR_CLEANUP_INDEX_MISSING"
+  end
+
+  -- 5. Safe TTL handling:
+  -- -2: index was unexpectedly deleted (fail closed)
+  -- -1: indefinite retention (preserve without calling expire)
+  -- >= 0 and < newCustTtl: extend retention
+  local newCustTtl = tonumber(ARGV[4])
+  local curIndexTtl = redis.call("ttl", KEYS[3])
+  if curIndexTtl == -2 then
+    redis.call("del", KEYS[2])
+    redis.call("del", KEYS[1])
+    return "ERR_CLEANUP_INDEX_MISSING"
+  elseif curIndexTtl == -1 then
+    -- Indefinite retention: PRESERVE, do NOT call expire!
+  elseif curIndexTtl >= 0 and curIndexTtl < newCustTtl then
+    redis.call("expire", KEYS[3], newCustTtl)
+  end
+  -- Note: Tester session key (KEYS[4]) is NOT touched, keeping tester access expiry strictly unchanged!
+end
+
 redis.call("set", KEYS[2], ARGV[3], "ex", ARGV[4])
 redis.call("del", KEYS[1])
 return "OK"`;
 
     try {
+      const keys = testerSessionId
+        ? [lockKey, sessionKey, custIdsKey, testerKey, killKey, legacyKillKey1, legacyKillKey2]
+        : [lockKey, sessionKey];
+
       const result = await this.executeCommand<string>([
         'EVAL',
         script,
-        2,
-        lockKey,
-        sessionKey,
+        keys.length,
+        ...keys,
         lockToken,
         String(expectedVersion),
         payloadWithEnvelope,
         String(ttlSeconds),
+        sessionId,
+        String(nowMs),
       ]);
 
       if (result === 'OK') {
@@ -364,6 +465,12 @@ return "OK"`;
       }
       if (result === 'ERR_VERSION_MISMATCH') {
         return { success: false, error: 'VERSION_MISMATCH' };
+      }
+      if (result === 'ERR_TESTER_REVOKED') {
+        return { success: false, error: 'TESTER_REVOKED' };
+      }
+      if (result === 'ERR_CLEANUP_INDEX_MISSING') {
+        return { success: false, error: 'CLEANUP_INDEX_MISSING' };
       }
       return { success: false, error: 'STORAGE_ERROR' };
     } catch (err: any) {
@@ -416,17 +523,22 @@ return count`;
 
   async linkTesterCustomerSession(
     testerSessionId: string,
-    customerSessionId: string
+    customerSessionId: string,
+    ttlSeconds: number = CUSTOMER_SESSION_TTL_SECONDS
   ): Promise<{ success: boolean; reason?: string }> {
     const testerKey = `sanelow:tester_sess:${testerSessionId}`;
     const setKey = `sanelow:tester_cust_ids:${testerSessionId}`;
     const killKey = TESTER_KILL_SWITCH_KEY;
+    const legacyKillKey1 = LEGACY_TESTER_KILL_SWITCH_KEY_1;
+    const legacyKillKey2 = LEGACY_TESTER_KILL_SWITCH_KEY_2;
     const nowMs = Date.now();
     const maxLifetimeMs = (TESTER_SESSION_TTL_SECONDS + 60) * 1000;
-    const custTtlSeconds = CUSTOMER_SESSION_TTL_SECONDS;
+    const custTtlSeconds = ttlSeconds;
 
     const script = `local killVal = redis.call("get", KEYS[3])
-if killVal == "1" then
+local legKill1 = #KEYS >= 4 and redis.call("get", KEYS[4]) or nil
+local legKill2 = #KEYS >= 5 and redis.call("get", KEYS[5]) or nil
+if killVal == "1" or legKill1 == "1" or legKill2 == "1" then
   return "ERR_TESTER_KILL_SWITCH_ACTIVE"
 end
 local testerData = redis.call("get", KEYS[1])
@@ -447,13 +559,13 @@ end
 local nowMs = tonumber(ARGV[2])
 local createdAt = tonumber(parsed.createdAt)
 local expiresAt = tonumber(parsed.expiresAt)
-if not createdAt or not expiresAt then
+if not createdAt or not expiresAt or not nowMs then
   return "ERR_TESTER_SESSION_MALFORMED"
 end
 if createdAt > nowMs + 60000 then
   return "ERR_TESTER_SESSION_FUTURE_CREATED"
 end
-if nowMs > expiresAt then
+if nowMs >= expiresAt then
   return "ERR_TESTER_SESSION_EXPIRED"
 end
 if expiresAt <= createdAt then
@@ -463,18 +575,34 @@ local maxLifetime = tonumber(ARGV[3])
 if (expiresAt - createdAt) > maxLifetime then
   return "ERR_TESTER_SESSION_EXCESSIVE_TTL"
 end
+
+-- Inspect existing TTL before SADD creates newly initialized set
+local prevTtl = redis.call("ttl", KEYS[2])
 redis.call("sadd", KEYS[2], ARGV[1])
-redis.call("expire", KEYS[2], tonumber(ARGV[4]))
+local newTtl = tonumber(ARGV[4])
+
+if prevTtl == -2 then
+  -- Newly created set: assign initial customer session cleanup TTL
+  redis.call("expire", KEYS[2], newTtl)
+elseif prevTtl == -1 then
+  -- Indefinite retention: PRESERVE indefinite retention, do NOT call expire!
+elseif prevTtl >= 0 and prevTtl < newTtl then
+  -- Finite retention that is shorter: extend it
+  redis.call("expire", KEYS[2], newTtl)
+end
+
 return "OK"`;
 
     try {
       const res = await this.executeCommand<string>([
         'EVAL',
         script,
-        3,
+        5,
         testerKey,
         setKey,
         killKey,
+        legacyKillKey1,
+        legacyKillKey2,
         customerSessionId,
         String(nowMs),
         String(maxLifetimeMs),
@@ -543,8 +671,18 @@ return "OK"`;
     const testerKey = `sanelow:tester_sess:${testerSessionId}`;
     const nowMs = Date.now();
 
-    const script = `redis.call("sadd", KEYS[1], ARGV[1])
-redis.call("expire", KEYS[1], tonumber(ARGV[2]))
+    const script = `local prevTtl = redis.call("ttl", KEYS[1])
+redis.call("sadd", KEYS[1], ARGV[1])
+local newTtl = tonumber(ARGV[2])
+
+if prevTtl == -2 then
+  -- Newly created set: assign expiration
+  redis.call("expire", KEYS[1], newTtl)
+elseif prevTtl == -1 then
+  -- Indefinite retention: PRESERVE indefinite retention!
+elseif prevTtl >= 0 and prevTtl < newTtl then
+  redis.call("expire", KEYS[1], newTtl)
+end
 redis.call("sadd", KEYS[2], ARGV[3])
 local testerVal = redis.call("get", KEYS[3])
 local parsed = {}
@@ -587,12 +725,15 @@ return "OK"`;
     const pendingKey = TESTER_PENDING_CLEANUPS_KEY;
     const testerKey = `sanelow:tester_sess:${testerSessionId}`;
 
-    const script = `local card = redis.call("scard", KEYS[1])
-if card > 0 then
-  redis.call("sadd", KEYS[2], ARGV[1])
-  return "ERR_INDEX_NOT_EMPTY"
+    const script = `local exists = redis.call("exists", KEYS[1])
+if exists == 1 then
+  local card = redis.call("scard", KEYS[1])
+  if card > 0 then
+    redis.call("sadd", KEYS[2], ARGV[1])
+    return "ERR_INDEX_NOT_EMPTY"
+  end
+  redis.call("del", KEYS[1])
 end
-redis.call("del", KEYS[1])
 redis.call("del", KEYS[3])
 redis.call("srem", KEYS[2], ARGV[1])
 return "OK"`;
@@ -677,7 +818,8 @@ export class InMemorySessionStore implements SessionStoreAdapter {
     lockToken: string,
     expectedVersion: number,
     updatedSession: StoredSession,
-    ttlSeconds: number
+    ttlSeconds: number,
+    testerSessionId?: string
   ): Promise<CommitRefreshResult> {
     // 1. Verify lock ownership
     const lock = this.locks.get(lockKey);
@@ -699,7 +841,69 @@ export class InMemorySessionStore implements SessionStoreAdapter {
       return { success: false, error: 'VERSION_MISMATCH' };
     }
 
-    // 4. Atomic write & release lock
+    // 4. Tester session & cleanup index coordination (if testerSessionId provided)
+    if (testerSessionId) {
+      if (await isTesterKillSwitchActive()) {
+        this.records.delete(sessionId);
+        this.locks.delete(lockKey);
+        return { success: false, error: 'TESTER_REVOKED' };
+      }
+
+      const testerKey = `sanelow:tester_sess:${testerSessionId}`;
+      const rawTester = await this.getRaw(testerKey);
+      if (!rawTester) {
+        this.records.delete(sessionId);
+        this.locks.delete(lockKey);
+        return { success: false, error: 'TESTER_REVOKED' };
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(rawTester);
+        if (!parsed || typeof parsed !== 'object' || parsed.revoked === true || parsed.revoked === 'true') {
+          this.records.delete(sessionId);
+          this.locks.delete(lockKey);
+          return { success: false, error: 'TESTER_REVOKED' };
+        }
+        const createdAt = parsed.createdAt;
+        const expiresAt = parsed.expiresAt;
+        if (
+          typeof createdAt !== 'number' ||
+          !Number.isFinite(createdAt) ||
+          typeof expiresAt !== 'number' ||
+          !Number.isFinite(expiresAt) ||
+          expiresAt <= createdAt ||
+          Date.now() >= expiresAt ||
+          createdAt > Date.now() + 60000
+        ) {
+          this.records.delete(sessionId);
+          this.locks.delete(lockKey);
+          return { success: false, error: 'TESTER_REVOKED' };
+        }
+      } catch {
+        this.records.delete(sessionId);
+        this.locks.delete(lockKey);
+        return { success: false, error: 'TESTER_REVOKED' };
+      }
+
+      // Check cleanup index existence & membership: fail closed if missing or unlinked
+      const custIdsKey = `sanelow:tester_cust_ids:${testerSessionId}`;
+      const entry = this.setRecords.get(custIdsKey);
+      if (!entry || Date.now() > entry.expiresAt || !entry.members.has(sessionId)) {
+        this.records.delete(sessionId);
+        this.locks.delete(lockKey);
+        return { success: false, error: 'CLEANUP_INDEX_MISSING' };
+      }
+
+      // Extend cleanup index retention (preserve indefinite Infinity, never shorten existing TTL)
+      const newIndexExpiresAt = Date.now() + ttlSeconds * 1000;
+      if (entry.expiresAt !== Infinity && entry.expiresAt < newIndexExpiresAt) {
+        entry.expiresAt = newIndexExpiresAt;
+      }
+      // Note: Tester session expiry remains strictly unchanged
+    }
+
+    // 5. Atomic write & release lock
     const newVersion = expectedVersion + 1;
     updatedSession.version = newVersion;
     const encryptedData = encryptAtRest(updatedSession);
@@ -770,7 +974,8 @@ export class InMemorySessionStore implements SessionStoreAdapter {
 
   async linkTesterCustomerSession(
     testerSessionId: string,
-    customerSessionId: string
+    customerSessionId: string,
+    ttlSeconds: number = CUSTOMER_SESSION_TTL_SECONDS
   ): Promise<{ success: boolean; reason?: string }> {
     // 1. Check kill switch
     if (await isTesterKillSwitchActive()) {
@@ -815,7 +1020,7 @@ export class InMemorySessionStore implements SessionStoreAdapter {
       return { success: false, reason: 'ERR_TESTER_SESSION_FUTURE_CREATED' };
     }
 
-    if (now > expiresAt) {
+    if (now >= expiresAt) {
       return { success: false, reason: 'ERR_TESTER_SESSION_EXPIRED' };
     }
 
@@ -829,7 +1034,17 @@ export class InMemorySessionStore implements SessionStoreAdapter {
     }
 
     const setKey = `sanelow:tester_cust_ids:${testerSessionId}`;
-    await this.saddRaw(setKey, customerSessionId, CUSTOMER_SESSION_TTL_SECONDS);
+    const newExpiresAt = Date.now() + ttlSeconds * 1000;
+    let entry = this.setRecords.get(setKey);
+    if (!entry || Date.now() > entry.expiresAt) {
+      entry = { members: new Set([customerSessionId]), expiresAt: newExpiresAt };
+      this.setRecords.set(setKey, entry);
+    } else {
+      entry.members.add(customerSessionId);
+      if (entry.expiresAt < newExpiresAt) {
+        entry.expiresAt = newExpiresAt;
+      }
+    }
     return { success: true };
   }
 
@@ -867,7 +1082,18 @@ export class InMemorySessionStore implements SessionStoreAdapter {
     const custIdsKey = `sanelow:tester_cust_ids:${testerSessionId}`;
     const testerKey = `sanelow:tester_sess:${testerSessionId}`;
     const now = Date.now();
-    await this.saddRaw(custIdsKey, customerSessionId, ttlSeconds);
+    const newExpiresAt = now + ttlSeconds * 1000;
+
+    let entry = this.setRecords.get(custIdsKey);
+    if (!entry || now > entry.expiresAt) {
+      entry = { members: new Set([customerSessionId]), expiresAt: newExpiresAt };
+      this.setRecords.set(custIdsKey, entry);
+    } else {
+      entry.members.add(customerSessionId);
+      if (entry.expiresAt < newExpiresAt) {
+        entry.expiresAt = newExpiresAt;
+      }
+    }
     await this.saddRaw(TESTER_PENDING_CLEANUPS_KEY, testerSessionId);
 
     const rawTester = await this.getRaw(testerKey);
@@ -1104,8 +1330,14 @@ export async function isTesterKillSwitchActive(): Promise<boolean> {
     return true;
   }
   try {
-    const val = await store.getRaw(TESTER_KILL_SWITCH_KEY);
-    return val === '1';
+    // Deny access if canonical key or ANY legacy kill-switch key is active
+    for (const key of ALL_TESTER_KILL_SWITCH_KEYS) {
+      const val = await store.getRaw(key);
+      if (val === '1') {
+        return true;
+      }
+    }
+    return false;
   } catch {
     // Fail closed: Redis failure must deny tester access immediately
     console.error('[Tester Kill Switch Error]: Redis check failed, failing closed: reason=STORAGE_CHECK_FAILED');
@@ -1300,25 +1532,30 @@ function isValidIpFormat(ip: string): boolean {
 }
 
 export function getClientIp(req: IncomingMessage): string | null {
-  // 1. In deployed Vercel environments, trust only edge-injected proxy headers
-  const vercelForwarded = req.headers['x-vercel-forwarded-for'];
-  if (vercelForwarded) {
-    const ip = (Array.isArray(vercelForwarded) ? vercelForwarded[0] : vercelForwarded).split(',')[0].trim();
-    if (ip && isValidIpFormat(ip)) return ip;
-  }
-
-  const realIp = req.headers['x-real-ip'];
-  if (realIp) {
-    const ip = (Array.isArray(realIp) ? realIp[0] : realIp).trim();
-    if (ip && isValidIpFormat(ip)) return ip;
-  }
-
-  // In production / deployed mode, DO NOT fall back to caller-supplied headers
+  // In production / deployed environments, unverified client-supplied forwarding headers
+  // (such as x-vercel-forwarded-for, x-real-ip, x-forwarded-for) CANNOT be treated as verified client identity
+  // without authoritative infrastructure evidence of edge-level overwrite/spoofing protections
+  // and the deployment's actual ingress path.
+  // We strictly refuse to trust caller-supplied forwarding headers as verified identity.
+  // Returning null routes the request to the restrictive shared-bucket protection (max 2 attempts / 15m),
+  // preventing authentication bypass while honestly documenting the shared availability tradeoff.
   if (isDeployedEnvironment() && process.env.NODE_ENV !== 'test') {
-    return null; // Trusted IP could not be established
+    return null; // Trustworthy client identity cannot be verified from incoming HTTP headers
   }
 
-  // In test / local development mode, allow standard test headers or socket remoteAddress
+  // In test / local development mode ONLY, allow test headers or socket remoteAddress
+  const testVercel = req.headers['x-vercel-forwarded-for'];
+  if (testVercel) {
+    const ip = (Array.isArray(testVercel) ? testVercel[0] : testVercel).split(',')[0].trim();
+    if (ip && isValidIpFormat(ip)) return ip;
+  }
+
+  const testRealIp = req.headers['x-real-ip'];
+  if (testRealIp) {
+    const ip = (Array.isArray(testRealIp) ? testRealIp[0] : testRealIp).trim();
+    if (ip && isValidIpFormat(ip)) return ip;
+  }
+
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
     const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',')[0].trim();
@@ -1593,6 +1830,102 @@ export async function getSession(
     return null;
   }
 
+  // If this customer session is associated with a tester session:
+  // Continuously verify that:
+  // 1. The global tester kill switch is not engaged (checks canonical & legacy keys).
+  // 2. The linked tester session exists, is active, not revoked, and satisfies strict timestamp bounds (nowMs < expiresAt).
+  // 3. The customer session is a verified member of the cleanup index (sanelow:tester_cust_ids:${testerSessionId}).
+  //    A valid tester record alone does NOT prove linkage; unlinked/orphaned sessions MUST be denied!
+  // 4. Any storage error MUST deny access even if deletion also fails.
+  if (session.testerSessionId) {
+    try {
+      // Step 1: Kill switch check
+      const killActive = await isTesterKillSwitchActive();
+      if (killActive) {
+        console.warn('[Session Security]: Tester kill switch active, invalidating customer session');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      // Step 2: Tester session verification
+      if (!store.getRaw) {
+        console.error('[Session Security]: Session store missing getRaw, failing closed');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      const testerKey = `sanelow:tester_sess:${session.testerSessionId}`;
+      const rawTester = await store.getRaw(testerKey);
+
+      if (!rawTester) {
+        console.warn('[Session Security]: Linked tester session missing, invalidating customer session');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      let parsedTester: any;
+      try {
+        parsedTester = JSON.parse(rawTester);
+      } catch {
+        console.warn('[Session Security]: Linked tester session malformed, invalidating customer session');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      if (!parsedTester || typeof parsedTester !== 'object' || Array.isArray(parsedTester)) {
+        console.warn('[Session Security]: Linked tester session malformed, invalidating customer session');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      if (parsedTester.revoked === true || parsedTester.revoked === 'true') {
+        console.warn('[Session Security]: Linked tester session is revoked, invalidating customer session');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      const createdAt = parsedTester.createdAt;
+      const expiresAt = parsedTester.expiresAt;
+      if (
+        typeof createdAt !== 'number' ||
+        !Number.isFinite(createdAt) ||
+        typeof expiresAt !== 'number' ||
+        !Number.isFinite(expiresAt)
+      ) {
+        console.warn('[Session Security]: Linked tester session timestamps invalid, invalidating customer session');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      if (expiresAt <= createdAt || Date.now() >= expiresAt || createdAt > Date.now() + 60000) {
+        console.warn('[Session Security]: Linked tester session expired or invalid bounds, invalidating customer session');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      // Step 3: Cleanup index membership verification
+      // A valid tester record alone does NOT prove linkage! Must verify membership in cleanup index:
+      const custIdsKey = `sanelow:tester_cust_ids:${session.testerSessionId}`;
+      if (!store.smembersRaw) {
+        console.error('[Session Security]: Session store missing smembersRaw, failing closed');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+
+      const members = await store.smembersRaw(custIdsKey);
+      if (!Array.isArray(members) || !members.includes(sessionId)) {
+        console.warn('[Session Security]: Customer session is not registered in tester cleanup index (orphaned), invalidating customer session');
+        await store.delete(sessionId).catch(() => {});
+        return null;
+      }
+    } catch (err: any) {
+      // Storage error MUST deny access even if deletion also fails!
+      console.error('[Session Security]: Storage error during tester validation, failing closed:', err?.message);
+      await store.delete(sessionId).catch(() => {});
+      return null;
+    }
+  }
+
   const now = Date.now();
 
   if (session.sessionExpiresAt && now > session.sessionExpiresAt) {
@@ -1713,7 +2046,8 @@ export async function getSession(
         lockToken,
         expectedVersion,
         updatedCandidate,
-        remainingSeconds
+        remainingSeconds,
+        freshCheck.testerSessionId || session.testerSessionId
       );
 
       if (!commitRes.success) {
@@ -2325,9 +2659,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       try {
         if (kill) {
-          await store.setRaw(TESTER_KILL_SWITCH_KEY, '1');
+          for (const key of ALL_TESTER_KILL_SWITCH_KEYS) {
+            await store.setRaw(key, '1');
+          }
         } else {
-          await store.delRaw(TESTER_KILL_SWITCH_KEY);
+          for (const key of ALL_TESTER_KILL_SWITCH_KEYS) {
+            await store.delRaw(key);
+          }
         }
       } catch {
         console.error('[Tester Kill Error]: Redis write failed: reason=KILL_SWITCH_WRITE_FAILED');
@@ -2725,6 +3063,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ? claims.name
           : undefined;
 
+      const tSessId = cookies[TESTER_COOKIE_NAME];
+      const validTesterSessionId = (testerAccess && tSessId && /^[0-9a-fA-F]{64}$/.test(tSessId)) ? tSessId : undefined;
+
       const sessionId = crypto.randomBytes(32).toString('hex');
       const sessionTtlSeconds = 30 * 24 * 3600;
       const sessionExpiresAt = Date.now() + sessionTtlSeconds * 1000;
@@ -2739,6 +3080,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         customerId,
         customerEmail,
         customerName,
+        testerSessionId: validTesterSessionId,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         version: 1,
@@ -2764,13 +3106,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       // If this login was initiated under tester access, recheck tester expiry & revocation, and atomically link in Redis
       if (testerAccess) {
-        const cookies = parseCookies(req);
-        const tSessId = cookies[TESTER_COOKIE_NAME];
         let linkSuccess = false;
 
         if (tSessId && /^[0-9a-fA-F]{64}$/.test(tSessId) && store.linkTesterCustomerSession) {
           try {
-            const linkResult = await store.linkTesterCustomerSession(tSessId, sessionId);
+            const linkResult = await store.linkTesterCustomerSession(tSessId, sessionId, sessionTtlSeconds);
             linkSuccess = linkResult.success;
           } catch {
             linkSuccess = false;
