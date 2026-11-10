@@ -41,7 +41,44 @@ import {
   SHOPIFY_CUSTOMER_ACCOUNT_URL,
   ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
   DEFAULT_CURRENCY,
+  WishlistScope,
+  WishlistState,
+  WishlistTransitionResult,
+  WishlistAction,
+  WishlistListener,
+  WishlistStorageAdapter,
+  GUEST_WISHLIST_STORAGE_KEY,
+  getWishlistStorageKey,
+  loadWishlistForScope,
+  saveWishlistForScope,
+  getWishlistNotificationMessage,
+  applyWishlistToggle,
+  wishlistReducer,
+  executeWishlistToggle,
+  WishlistCoordinator,
+  createWishlistCoordinator,
+  defaultWishlistCoordinator,
 } from './lib/shopify';
+
+export {
+  type WishlistScope,
+  type WishlistState,
+  type WishlistTransitionResult,
+  type WishlistAction,
+  type WishlistListener,
+  type WishlistStorageAdapter,
+  GUEST_WISHLIST_STORAGE_KEY,
+  getWishlistStorageKey,
+  loadWishlistForScope,
+  saveWishlistForScope,
+  getWishlistNotificationMessage,
+  applyWishlistToggle,
+  wishlistReducer,
+  executeWishlistToggle,
+  WishlistCoordinator,
+  createWishlistCoordinator,
+  defaultWishlistCoordinator,
+};
 
 import {
   Filter,
@@ -78,6 +115,8 @@ function parseUrlRoute(): RouteState {
 
   return { view: 'home' };
 }
+
+
 
 export default function App() {
   // App initialization loader
@@ -122,22 +161,152 @@ export default function App() {
 
   // Authenticated Shopify Customer Session State
   const [customerSession, setCustomerSession] = useState<CustomerSession | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<'unresolved' | 'authenticated' | 'guest'>('unresolved');
+  const [sessionError, setSessionError] = useState<string | null>(null);
+
+  // Determine active customer ID for isolated wishlist storage
+  const activeCustomerId: string | null =
+    customerSession?.authenticated && customerSession.customer?.id && typeof customerSession.customer.id === 'string' && customerSession.customer.id.trim()
+      ? customerSession.customer.id.trim()
+      : null;
+  const sessionRequestIdRef = useRef<number>(0);
+  const isLogoutInProgressRef = useRef<boolean>(false);
+
+  // Scope generation counter to invalidate delayed actions and detect A -> B -> A transitions
+  const scopeGenerationRef = useRef<number>(0);
+
+  // Confirmed customer scope:
+  // - If logout in progress -> undefined (hidden & locked)
+  // - If sessionStatus is 'authenticated' and valid customer ID -> activeCustomerId (exact string)
+  // - If sessionStatus is 'guest' -> null (confirmed guest)
+  // - If sessionStatus is 'unresolved' -> undefined (identity unresolved or actively changing)
+  const confirmedScope: WishlistScope =
+    !isLogoutInProgressRef.current && sessionStatus === 'authenticated' && activeCustomerId
+      ? activeCustomerId
+      : !isLogoutInProgressRef.current && sessionStatus === 'guest'
+        ? null
+        : undefined;
+
+  // Browser-Local Wishlist: state managed by authoritative WishlistCoordinator
+  const [wishlistState, setWishlistState] = useState<WishlistState>(() => defaultWishlistCoordinator.getState());
 
   useEffect(() => {
-    fetchCustomerSession().then((sess) => {
-      setCustomerSession(sess);
-    }).catch(() => {});
+    defaultWishlistCoordinator.setOnNotify((msg) => showToast(msg));
+    return defaultWishlistCoordinator.subscribe((next) => {
+      setWishlistState(next);
+    });
   }, []);
 
-  // Browser-Local Wishlist
-  const [wishlist, setWishlist] = useState<Product[]>(() => {
-    try {
-      const saved = localStorage.getItem('sanelow_merch_wishlist');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
+  // Render isolation: Do NOT expose wishlistState.items unless its customerId matches the currently confirmed customer scope.
+  // While identity is unresolved or changing, exposed wishlist is empty and mutations are disabled!
+  const isScopeConfirmed =
+    !isLogoutInProgressRef.current && confirmedScope !== undefined && wishlistState.customerId === confirmedScope;
+  const wishlist = isScopeConfirmed ? wishlistState.items : [];
+  const isWishlistDisabled = !isScopeConfirmed;
+
+  const syncSession = useCallback((options?: { forceRecovery?: boolean }) => {
+    if (options?.forceRecovery) {
+      isLogoutInProgressRef.current = false;
     }
-  });
+
+    // While logout is in progress, ignore focus/session-change attempts to start verification
+    if (isLogoutInProgressRef.current) {
+      return;
+    }
+
+    const reqId = ++sessionRequestIdRef.current;
+    defaultWishlistCoordinator.startSessionVerification();
+    setSessionStatus('unresolved');
+    setSessionError(null);
+
+    fetchCustomerSession()
+      .then((sess) => {
+        // While logout is in progress, reject late responses
+        if (isLogoutInProgressRef.current) {
+          return;
+        }
+
+        if (reqId === sessionRequestIdRef.current) {
+          if (sess && sess.authenticated === true) {
+            const customerId = sess.customer?.id;
+            if (typeof customerId === 'string' && customerId.trim()) {
+              setCustomerSession(sess);
+              setSessionStatus('authenticated');
+              setSessionError(null);
+              defaultWishlistCoordinator.setScope(customerId.trim());
+            } else {
+              // Treat authenticated:true without a valid customer ID as an invalid/unresolved response
+              setCustomerSession(null);
+              setSessionStatus('unresolved');
+              defaultWishlistCoordinator.setScope(undefined);
+              setSessionError('Session response missing valid customer identity.');
+            }
+          } else if (sess && sess.authenticated === false) {
+            // Set 'guest' only after a successful session response explicitly confirms authenticated:false
+            setCustomerSession(sess);
+            setSessionStatus('guest');
+            setSessionError(null);
+            defaultWishlistCoordinator.setScope(null);
+          } else {
+            setCustomerSession(null);
+            setSessionStatus('unresolved');
+            defaultWishlistCoordinator.setScope(undefined);
+            setSessionError('Unrecognized session status.');
+          }
+        }
+      })
+      .catch((err: any) => {
+        if (isLogoutInProgressRef.current) {
+          return;
+        }
+
+        if (reqId === sessionRequestIdRef.current) {
+          // A rejected request or error response must leave identity unresolved, not set sessionStatus to 'guest'.
+          // - Clear previous authenticated identity and hide its wishlist.
+          // - Keep wishlist mutations and persistence disabled while unresolved.
+          // - Show a small retry option.
+          setCustomerSession(null);
+          setSessionStatus('unresolved');
+          defaultWishlistCoordinator.setScope(undefined);
+          setSessionError(err?.message || 'Unable to verify session.');
+        }
+      });
+  }, []);
+
+  useEffect(() => {
+    const handleLogoutStart = () => {
+      // Establish a synchronous logout-in-progress guard when logout starts
+      isLogoutInProgressRef.current = true;
+      // Immediately invalidate pending session checks
+      sessionRequestIdRef.current++;
+      // Put the wishlist coordinator into unresolved scope
+      defaultWishlistCoordinator.startSessionVerification();
+      setSessionStatus('unresolved');
+      setCustomerSession(null);
+      setSessionError(null);
+    };
+
+    const handleLogoutRecovered = () => {
+      // Deliberate recovery from a logout error
+      isLogoutInProgressRef.current = false;
+      syncSession({ forceRecovery: true });
+    };
+
+    const onSessionChanged = () => syncSession();
+    const onFocus = () => syncSession();
+
+    syncSession();
+    window.addEventListener('customer-logout-started', handleLogoutStart);
+    window.addEventListener('customer-logout-recovered', handleLogoutRecovered);
+    window.addEventListener('customer-session-changed', onSessionChanged);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('customer-logout-started', handleLogoutStart);
+      window.removeEventListener('customer-logout-recovered', handleLogoutRecovered);
+      window.removeEventListener('customer-session-changed', onSessionChanged);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [syncSession]);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const catalogRef = useRef<HTMLDivElement>(null);
@@ -424,14 +593,7 @@ export default function App() {
     };
   }, [loadLiveProducts, checkCatalogueVersion]);
 
-  // Save wishlist to local storage
-  useEffect(() => {
-    try {
-      localStorage.setItem('sanelow_merch_wishlist', JSON.stringify(wishlist));
-    } catch {
-      // Ignore
-    }
-  }, [wishlist]);
+
 
   // Shopify Cart Operations
   const handleAddToCart = async (
@@ -544,20 +706,25 @@ export default function App() {
   }, [shopifyCart]);
 
   // Wishlist Actions
-  const handleToggleWishlist = (product: Product) => {
-    setWishlist((prev) => {
-      const exists = prev.some((p) => p.id === product.id);
-      if (exists) {
-        showToast(`Removed from saved merch`);
-        return prev.filter((p) => p.id !== product.id);
-      } else {
-        showToast(`Saved "${product.title}" locally on this device`);
-        return [...prev, product];
-      }
+  const handleToggleWishlist = (
+    product: Product,
+    options?: { delayMs?: number }
+  ) => {
+    if (isLogoutInProgressRef.current) {
+      showToast('Sign out in progress — wishlist mutations are disabled.');
+      return;
+    }
+    defaultWishlistCoordinator.toggle(product, {
+      intendedScope: confirmedScope,
+      intendedGeneration: wishlistState.scopeGeneration,
+      delayMs: options?.delayMs,
     });
   };
 
-  const isProductInWishlist = (id: string) => wishlist.some((p) => p.id === id);
+  const isProductInWishlist = (id: string) => {
+    if (!isScopeConfirmed || confirmedScope === undefined) return false;
+    return wishlistState.items.some((p) => p.id === id);
+  };
 
   // Filtered & Sorted Products
   const filteredProducts = useMemo(() => {
@@ -639,6 +806,26 @@ export default function App() {
         onRetry={() => loadLiveProducts(false)}
         isRefreshing={isRefreshingCatalog}
       />
+
+      {/* Session Unresolved Notification with Retry Action */}
+      {sessionStatus === 'unresolved' && sessionError && (
+        <aside
+          aria-label="Account session status"
+          className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-xs text-amber-900 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">Account session unresolved:</span>
+            <span>{sessionError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={syncSession}
+            className="px-2.5 py-1 text-xs font-semibold bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-md transition-colors cursor-pointer"
+          >
+            Retry Verification
+          </button>
+        </aside>
+      )}
 
       {/* Toast Alert */}
       {toastMessage && (
@@ -1085,6 +1272,8 @@ export default function App() {
           setSelectedProduct(prod);
         }}
         onQuickView={(p) => navigateTo(`/products/${p.handle}`)}
+        isWishlistDisabled={isWishlistDisabled}
+        onRetrySession={syncSession}
       />
 
       {/* Shopify Customer Account & Wishlist Modal */}
