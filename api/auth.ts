@@ -2092,6 +2092,212 @@ async function readRequestBodyText(req: IncomingMessage, maxBytes = 16384): Prom
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function countTopLevelJsonKeyOccurrences(jsonText: string, targetKey: string): number {
+  let count = 0;
+  let i = 0;
+  const len = jsonText.length;
+  let depth = 0;
+  let expectingKeyAtDepth1 = false;
+
+  const skipWhitespace = () => {
+    while (i < len && /\s/.test(jsonText[i])) i++;
+  };
+
+  const readStringToken = (): string | null => {
+    if (jsonText[i] !== '"') return null;
+    const start = i;
+    i++;
+    while (i < len) {
+      const ch = jsonText[i];
+      if (ch === '\\') {
+        i += 2;
+      } else if (ch === '"') {
+        i++;
+        try {
+          return JSON.parse(jsonText.slice(start, i));
+        } catch {
+          return null;
+        }
+      } else {
+        i++;
+      }
+    }
+    return null;
+  };
+
+  while (i < len) {
+    skipWhitespace();
+    if (i >= len) break;
+    const ch = jsonText[i];
+
+    if (ch === '{') {
+      depth++;
+      i++;
+      if (depth === 1) expectingKeyAtDepth1 = true;
+    } else if (ch === '}') {
+      if (depth === 1) expectingKeyAtDepth1 = false;
+      depth--;
+      i++;
+    } else if (ch === '[') {
+      depth++;
+      i++;
+    } else if (ch === ']') {
+      depth--;
+      i++;
+    } else if (ch === ',') {
+      i++;
+      if (depth === 1) expectingKeyAtDepth1 = true;
+    } else if (ch === '"') {
+      const str = readStringToken();
+      if (depth === 1 && expectingKeyAtDepth1) {
+        expectingKeyAtDepth1 = false;
+        skipWhitespace();
+        if (i < len && jsonText[i] === ':' && str === targetKey) {
+          count++;
+        }
+      }
+    } else {
+      if (depth === 1 && ch !== ':') {
+        expectingKeyAtDepth1 = false;
+      }
+      i++;
+    }
+  }
+
+  return count;
+}
+
+function parseTesterSecretFromString(rawText: string, contentType: string): string {
+  const ctype = contentType.toLowerCase();
+
+  const extractFromJsonText = (text: string): string => {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('MALFORMED_BODY');
+    }
+    if (countTopLevelJsonKeyOccurrences(text, 'secret') !== 1) {
+      throw new Error('MALFORMED_BODY');
+    }
+    if (!Object.prototype.hasOwnProperty.call(parsed, 'secret')) {
+      throw new Error('MALFORMED_BODY');
+    }
+    const secretVal = (parsed as Record<string, unknown>).secret;
+    if (typeof secretVal !== 'string') {
+      throw new Error('MALFORMED_BODY');
+    }
+    return secretVal;
+  };
+
+  const extractFromFormText = (text: string): string => {
+    if (!text || text.trim().length === 0) {
+      throw new Error('MALFORMED_BODY');
+    }
+    const params = new URLSearchParams(text);
+    const values = params.getAll('secret');
+    if (values.length !== 1) {
+      throw new Error('MALFORMED_BODY');
+    }
+    return values[0];
+  };
+
+  if (ctype.includes('application/json')) {
+    return extractFromJsonText(rawText);
+  }
+  if (ctype.includes('application/x-www-form-urlencoded')) {
+    return extractFromFormText(rawText);
+  }
+
+  try {
+    return extractFromJsonText(rawText);
+  } catch {
+    const trimmed = rawText.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      throw new Error('MALFORMED_BODY');
+    }
+    return extractFromFormText(rawText);
+  }
+}
+
+async function extractTesterAccessSecret(req: IncomingMessage, maxBytes = 16384): Promise<string> {
+  const rawCtype = req.headers['content-type'];
+  const contentType = Array.isArray(rawCtype) ? rawCtype[0] || '' : rawCtype || '';
+
+  const rawContentLength = req.headers['content-length'];
+  const contentLengthStr = Array.isArray(rawContentLength) ? rawContentLength[0] : rawContentLength;
+  if (typeof contentLengthStr === 'string' && contentLengthStr.trim() !== '') {
+    const declaredLen = Number(contentLengthStr);
+    if (Number.isFinite(declaredLen) && declaredLen > maxBytes) {
+      throw new Error('PAYLOAD_TOO_LARGE');
+    }
+  }
+
+  const reqAny = req as any;
+  if (reqAny.body !== undefined) {
+    const body = reqAny.body;
+    if (body === null || Array.isArray(body)) {
+      throw new Error('MALFORMED_BODY');
+    }
+    if (Buffer.isBuffer(body)) {
+      if (body.length > maxBytes) {
+        throw new Error('PAYLOAD_TOO_LARGE');
+      }
+      return parseTesterSecretFromString(body.toString('utf8'), contentType);
+    }
+    if (typeof body === 'string') {
+      if (Buffer.byteLength(body, 'utf8') > maxBytes) {
+        throw new Error('PAYLOAD_TOO_LARGE');
+      }
+      return parseTesterSecretFromString(body, contentType);
+    }
+    if (body instanceof URLSearchParams) {
+      if (Buffer.byteLength(body.toString(), 'utf8') > maxBytes) {
+        throw new Error('PAYLOAD_TOO_LARGE');
+      }
+      const values = body.getAll('secret');
+      if (values.length !== 1 || typeof values[0] !== 'string') {
+        throw new Error('MALFORMED_BODY');
+      }
+      return values[0];
+    }
+    if (typeof body === 'object') {
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(body);
+      } catch {
+        throw new Error('MALFORMED_BODY');
+      }
+      if (typeof serialized !== 'string') {
+        throw new Error('MALFORMED_BODY');
+      }
+      if (Buffer.byteLength(serialized, 'utf8') > maxBytes) {
+        throw new Error('PAYLOAD_TOO_LARGE');
+      }
+      if (!Object.prototype.hasOwnProperty.call(body, 'secret')) {
+        throw new Error('MALFORMED_BODY');
+      }
+      const secretVal = (body as Record<string, unknown>).secret;
+      if (typeof secretVal !== 'string') {
+        throw new Error('MALFORMED_BODY');
+      }
+      return secretVal;
+    }
+    throw new Error('MALFORMED_BODY');
+  }
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buf.length;
+    if (total > maxBytes) {
+      throw new Error('PAYLOAD_TOO_LARGE');
+    }
+    chunks.push(buf);
+  }
+  const rawText = Buffer.concat(chunks).toString('utf8');
+  return parseTesterSecretFromString(rawText, contentType);
+}
+
 // ============================================================================
 // 7. Main HTTP Handler for /api/auth
 // ============================================================================
@@ -2198,24 +2404,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       // 4. Extract submitted secret
       let candidateSecret = '';
       try {
-        const bodyText = await readRequestBodyText(req, 16384);
-        const ctype = (req.headers['content-type'] || '').toLowerCase();
-        if (ctype.includes('application/json')) {
-          const parsed = JSON.parse(bodyText);
-          candidateSecret = typeof parsed.secret === 'string' ? parsed.secret : '';
-        } else if (ctype.includes('application/x-www-form-urlencoded')) {
-          const params = new URLSearchParams(bodyText);
-          candidateSecret = params.get('secret') || '';
-        } else {
-          try {
-            const parsed = JSON.parse(bodyText);
-            candidateSecret = typeof parsed.secret === 'string' ? parsed.secret : '';
-          } catch {
-            const params = new URLSearchParams(bodyText);
-            candidateSecret = params.get('secret') || '';
-          }
+        candidateSecret = await extractTesterAccessSecret(req, 16384);
+      } catch (err: any) {
+        if (err?.message === 'PAYLOAD_TOO_LARGE') {
+          res.statusCode = 413;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', message: 'Request body exceeds maximum allowed size.' }));
+          return;
         }
-      } catch {
         res.statusCode = 400;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: 'MALFORMED_BODY', message: 'Unable to parse request body.' }));
