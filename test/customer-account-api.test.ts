@@ -4060,6 +4060,406 @@ test('Shopify Customer Account API & Custom Dashboard Specifications', async (t)
       });
     });
 
+    // Subtest (n): Tester-access request-body parsing (parsed form/JSON objects, raw strings, Buffers, streams, malformed/duplicate/oversized rejection)
+    await t2.test('(n) Tester-access request-body parsing handles form objects, raw strings, Buffers, and streams while rejecting invalid payloads', async () => {
+      const syntheticSecret = crypto.createHash('sha256').update('synthetic-tester-secret-seed').digest('hex');
+      const wrongSecret = crypto.createHash('sha256').update('wrong-synthetic-secret-seed').digest('hex');
+
+      const createStreamReqRes = (options: {
+        method?: string;
+        url?: string;
+        headers?: Record<string, string>;
+        chunks?: Array<string | Buffer>;
+        parsedBody?: any;
+      }) => {
+        const chunks = options.chunks || [];
+        let idx = 0;
+        const req = new Readable({
+          read() {
+            if (idx < chunks.length) {
+              const item = chunks[idx++];
+              this.push(Buffer.isBuffer(item) ? item : Buffer.from(item));
+            } else {
+              this.push(null);
+            }
+          },
+        }) as any;
+        req.method = options.method || 'POST';
+        req.url = options.url || '/api/auth?action=tester-access';
+        req.headers = options.headers || {};
+        if ('parsedBody' in options) {
+          req.body = options.parsedBody;
+        }
+        const res = new EventEmitter() as any;
+        res.statusCode = 200;
+        res.headers = {} as Record<string, string | string[]>;
+        res.headersSent = false;
+        res.data = '';
+        res.setHeader = (k: string, v: string | string[]) => {
+          res.headers[k.toLowerCase()] = v;
+        };
+        res.getHeader = (k: string) => res.headers[k.toLowerCase()];
+        res.end = (chunk?: any) => {
+          if (chunk) res.data += chunk.toString();
+          res.headersSent = true;
+          res.emit('finish');
+        };
+        return { req, res };
+      };
+
+      const countTesterSessions = (store: InMemorySessionStore): number => {
+        const rawMap = (store as any).rawRecords as Map<string, { value: string }> | undefined;
+        if (!rawMap) return 0;
+        let count = 0;
+        for (const key of rawMap.keys()) {
+          if (key.startsWith('sanelow:tester_sess:')) count++;
+        }
+        return count;
+      };
+
+      // 1. Testing disabled returns TESTING_DISABLED and issues no session
+      {
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        delete process.env.CUSTOMER_ACCOUNT_TESTING_ENABLED;
+        process.env.CUSTOMER_ACCOUNT_TESTER_SECRET = syntheticSecret;
+
+        const { req, res } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/x-www-form-urlencoded',
+            'x-vercel-forwarded-for': '198.51.100.201',
+          },
+          parsedBody: { secret: syntheticSecret },
+        });
+        await authHandler(req, res);
+        assert.equal(res.statusCode, 403);
+        assert.equal(JSON.parse(res.data).error, 'TESTING_DISABLED');
+        assert.equal(res.headers['set-cookie'], undefined);
+        assert.equal(countTesterSessions(memStore), 0);
+      }
+
+      process.env.CUSTOMER_ACCOUNT_TESTING_ENABLED = 'true';
+      process.env.CUSTOMER_ACCOUNT_TESTER_SECRET = syntheticSecret;
+
+      // 2. HTML form submission with already-parsed req.body object (exact Vercel Serverless reproduction case, including null-prototype querystring object)
+      {
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        const nullProtoFormBody = Object.assign(Object.create(null), { secret: syntheticSecret });
+        const { req, res } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/x-www-form-urlencoded',
+            accept: 'text/html,application/xhtml+xml',
+            'x-vercel-forwarded-for': '198.51.100.202',
+          },
+          parsedBody: nullProtoFormBody,
+          // Stream is empty because body parser already consumed it
+        });
+        await authHandler(req, res);
+        assert.equal(res.statusCode, 303, 'Parsed form-urlencoded object from HTML form should redirect with 303');
+        assert.equal(res.headers['location'], '/account');
+        assert.ok(String(res.headers['set-cookie'] || '').includes(`${TESTER_COOKIE_NAME}=`));
+        assert.equal(countTesterSessions(memStore), 1);
+      }
+
+      // 3. Equivalent raw form-urlencoded string in req.body
+      {
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        const { req, res } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'x-vercel-forwarded-for': '198.51.100.203',
+          },
+          parsedBody: `secret=${encodeURIComponent(syntheticSecret)}`,
+        });
+        await authHandler(req, res);
+        assert.equal(res.statusCode, 303);
+        assert.ok(String(res.headers['set-cookie'] || '').includes(`${TESTER_COOKIE_NAME}=`));
+        assert.equal(countTesterSessions(memStore), 1);
+      }
+
+      // 4. Streamed raw form-urlencoded body (no req.body)
+      {
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        const rawForm = `secret=${syntheticSecret}`;
+        const { req, res } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/x-www-form-urlencoded',
+            'x-vercel-forwarded-for': '198.51.100.204',
+          },
+          chunks: [rawForm.slice(0, 20), rawForm.slice(20)],
+        });
+        await authHandler(req, res);
+        assert.equal(res.statusCode, 303);
+        assert.ok(String(res.headers['set-cookie'] || '').includes(`${TESTER_COOKIE_NAME}=`));
+        assert.equal(countTesterSessions(memStore), 1);
+      }
+
+      // 5. Already-parsed JSON object in req.body
+      {
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        const { req, res } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/json; charset=utf-8',
+            'x-vercel-forwarded-for': '198.51.100.205',
+          },
+          parsedBody: { secret: syntheticSecret },
+        });
+        await authHandler(req, res);
+        assert.equal(res.statusCode, 200);
+        assert.equal(JSON.parse(res.data).success, true);
+        assert.ok(String(res.headers['set-cookie'] || '').includes(`${TESTER_COOKIE_NAME}=`));
+        assert.equal(countTesterSessions(memStore), 1);
+      }
+
+      // 6. Buffer req.body (JSON and form-urlencoded) & streamed JSON body
+      {
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        const { req: bufJsonReq, res: bufJsonRes } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/json',
+            'x-vercel-forwarded-for': '198.51.100.206',
+          },
+          parsedBody: Buffer.from(JSON.stringify({ secret: syntheticSecret }), 'utf8'),
+        });
+        await authHandler(bufJsonReq, bufJsonRes);
+        assert.equal(bufJsonRes.statusCode, 200);
+        assert.equal(countTesterSessions(memStore), 1);
+
+        const { req: bufFormReq, res: bufFormRes } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/x-www-form-urlencoded',
+            'x-vercel-forwarded-for': '198.51.100.207',
+          },
+          parsedBody: Buffer.from(`secret=${syntheticSecret}`, 'utf8'),
+        });
+        await authHandler(bufFormReq, bufFormRes);
+        assert.equal(bufFormRes.statusCode, 303);
+        assert.equal(countTesterSessions(memStore), 2);
+
+        const jsonStr = JSON.stringify({ secret: syntheticSecret });
+        const { req: streamJsonReq, res: streamJsonRes } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/json',
+            'x-vercel-forwarded-for': '198.51.100.208',
+          },
+          chunks: [jsonStr.slice(0, 15), jsonStr.slice(15)],
+        });
+        await authHandler(streamJsonReq, streamJsonRes);
+        assert.equal(streamJsonRes.statusCode, 200);
+        assert.equal(countTesterSessions(memStore), 3);
+      }
+
+      // 7. Wrong secret returns 401 UNAUTHORIZED with no session issued
+      {
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        const { req, res } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/x-www-form-urlencoded',
+            'x-vercel-forwarded-for': '198.51.100.209',
+          },
+          parsedBody: { secret: wrongSecret },
+        });
+        await authHandler(req, res);
+        assert.equal(res.statusCode, 401);
+        assert.equal(JSON.parse(res.data).error, 'UNAUTHORIZED');
+        assert.equal(res.headers['set-cookie'], undefined);
+        assert.equal(countTesterSessions(memStore), 0);
+      }
+
+      // 8. Non-string secrets, arrays, duplicate secret fields, and malformed bodies are rejected with no session issued
+      const invalidCases: Array<{ label: string; headers?: Record<string, string>; parsedBody?: any; chunks?: string[] }> = [
+        {
+          label: 'non-string numeric secret (parsed object)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: { secret: 123456 },
+        },
+        {
+          label: 'non-string boolean secret (parsed object)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: { secret: true },
+        },
+        {
+          label: 'non-string null secret (parsed object)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: { secret: null },
+        },
+        {
+          label: 'non-string object secret (parsed object)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: { secret: { value: syntheticSecret } },
+        },
+        {
+          label: 'array secret field (parsed duplicate form field)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/x-www-form-urlencoded' },
+          parsedBody: { secret: [syntheticSecret, syntheticSecret] },
+        },
+        {
+          label: 'duplicate secret fields (raw form-urlencoded stream)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/x-www-form-urlencoded' },
+          chunks: [`secret=${syntheticSecret}&secret=${syntheticSecret}`],
+        },
+        {
+          label: 'top-level array (parsed)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: [syntheticSecret],
+        },
+        {
+          label: 'top-level array (raw JSON stream)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          chunks: [JSON.stringify([{ secret: syntheticSecret }])],
+        },
+        {
+          label: 'null parsed body',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: null,
+        },
+        {
+          label: 'malformed JSON stream',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          chunks: ['{"secret": '],
+        },
+        {
+          label: 'JSON payload sent as form-urlencoded string',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/x-www-form-urlencoded' },
+          chunks: [JSON.stringify({ secret: syntheticSecret })],
+        },
+        {
+          label: 'missing secret field',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: { token: syntheticSecret },
+        },
+        {
+          label: 'duplicate secret keys in raw JSON text',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          chunks: [`{"secret":"${wrongSecret}","secret":"${syntheticSecret}"}`],
+        },
+        {
+          label: 'empty string body',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/x-www-form-urlencoded' },
+          parsedBody: '',
+        },
+      ];
+
+      for (let i = 0; i < invalidCases.length; i++) {
+        const testCase = invalidCases[i];
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        const { req, res } = createStreamReqRes({
+          headers: {
+            ...(testCase.headers || { origin: trustedBaseUrl }),
+            'x-vercel-forwarded-for': `198.51.100.${210 + i}`,
+          },
+          ...(testCase.chunks ? { chunks: testCase.chunks } : {}),
+          ...('parsedBody' in testCase ? { parsedBody: testCase.parsedBody } : {}),
+        });
+        await authHandler(req, res);
+        assert.ok(
+          res.statusCode >= 400 && res.statusCode < 500,
+          `Invalid case "${testCase.label}" must be rejected with 4xx, got ${res.statusCode}`
+        );
+        assert.equal(res.headers['set-cookie'], undefined, `No cookie may be issued for "${testCase.label}"`);
+        assert.equal(countTesterSessions(memStore), 0, `No Redis session may be stored for "${testCase.label}"`);
+      }
+
+      // 9. Oversized input (> 16 KB) rejected for streamed, raw string, Buffer, and parsed object
+      const oversizedCases: Array<{ label: string; headers?: Record<string, string>; parsedBody?: any; chunks?: string[] }> = [
+        {
+          label: 'oversized streamed form body (> 16 KB)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/x-www-form-urlencoded' },
+          chunks: [`secret=${syntheticSecret}&pad=`, 'a'.repeat(17000)],
+        },
+        {
+          label: 'oversized parsed object (> 16 KB)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: { secret: syntheticSecret, pad: 'a'.repeat(17000) },
+        },
+        {
+          label: 'oversized raw string body (> 16 KB)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/json' },
+          parsedBody: JSON.stringify({ secret: syntheticSecret, pad: 'a'.repeat(17000) }),
+        },
+        {
+          label: 'oversized Buffer body (> 16 KB)',
+          headers: { origin: trustedBaseUrl, 'content-type': 'application/x-www-form-urlencoded' },
+          parsedBody: Buffer.from(`secret=${syntheticSecret}&pad=${'a'.repeat(17000)}`, 'utf8'),
+        },
+      ];
+
+      for (let i = 0; i < oversizedCases.length; i++) {
+        const testCase = oversizedCases[i];
+        const memStore = new InMemorySessionStore();
+        setSessionStoreForTest(memStore);
+        const { req, res } = createStreamReqRes({
+          headers: {
+            ...(testCase.headers || { origin: trustedBaseUrl }),
+            'x-vercel-forwarded-for': `198.51.100.${230 + i}`,
+          },
+          ...(testCase.chunks ? { chunks: testCase.chunks } : {}),
+          ...('parsedBody' in testCase ? { parsedBody: testCase.parsedBody } : {}),
+        });
+        await authHandler(req, res);
+        assert.equal(
+          res.statusCode,
+          413,
+          `Oversized case "${testCase.label}" must be rejected with 413, got ${res.statusCode}`
+        );
+        assert.equal(JSON.parse(res.data).error, 'PAYLOAD_TOO_LARGE');
+        assert.equal(res.headers['set-cookie'], undefined, `No cookie may be issued for "${testCase.label}"`);
+        assert.equal(countTesterSessions(memStore), 0, `No Redis session may be stored for "${testCase.label}"`);
+      }
+
+      // 10. Kill switch and CSRF still deny valid parsed form submission and issue no session
+      {
+        const memStore = new InMemorySessionStore();
+        await memStore.setRaw(TESTER_KILL_SWITCH_KEY, '1');
+        setSessionStoreForTest(memStore);
+        const { req: killedReq, res: killedRes } = createStreamReqRes({
+          headers: {
+            origin: trustedBaseUrl,
+            'content-type': 'application/x-www-form-urlencoded',
+            'x-vercel-forwarded-for': '198.51.100.240',
+          },
+          parsedBody: { secret: syntheticSecret },
+        });
+        await authHandler(killedReq, killedRes);
+        assert.equal(killedRes.statusCode, 403);
+        assert.equal(JSON.parse(killedRes.data).error, 'TESTING_KILLED');
+        assert.equal(killedRes.headers['set-cookie'], undefined);
+        assert.equal(countTesterSessions(memStore), 0);
+
+        const memStoreCsrf = new InMemorySessionStore();
+        setSessionStoreForTest(memStoreCsrf);
+        const { req: csrfReq, res: csrfRes } = createStreamReqRes({
+          headers: {
+            origin: 'https://evil.example',
+            'content-type': 'application/x-www-form-urlencoded',
+            'x-vercel-forwarded-for': '198.51.100.241',
+          },
+          parsedBody: { secret: syntheticSecret },
+        });
+        await authHandler(csrfReq, csrfRes);
+        assert.equal(csrfRes.statusCode, 403);
+        assert.equal(JSON.parse(csrfRes.data).error, 'CSRF_VALIDATION_FAILED');
+        assert.equal(csrfRes.headers['set-cookie'], undefined);
+        assert.equal(countTesterSessions(memStoreCsrf), 0);
+      }
+    });
+
     // Cleanup environment
     delete process.env.CUSTOMER_ACCOUNT_TESTING_ENABLED;
     delete process.env.CUSTOMER_ACCOUNT_TESTER_SECRET;
