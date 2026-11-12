@@ -42,7 +42,7 @@
     },
     {
       "source": "/((?!api/|.*\\.[\\w]+$).*)",
-      "destination": "/index.html"
+      "destination": "/index"
     }
   ]
 }
