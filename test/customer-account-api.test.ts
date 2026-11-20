@@ -104,11 +104,14 @@ import { WishlistDrawer } from '../src/components/WishlistDrawer';
 import { Navbar, resolveNavbarAccountDisplay, type HeaderSessionStatus } from '../src/components/Navbar';
 import {
   CustomerDashboardAuthenticatedView,
+  CustomerDashboardSignedOutView,
   CustomerDashboardController,
   bindCustomerDashboardLifecycle,
   createCustomerDashboardController,
   executeDashboardLogout,
   executeDashboardResumeSession,
+  guardSignInNavigationClick,
+  resolveSignedOutAuthErrorMessage,
   filterLoadedOrders,
   getOrderTrackingLinks,
   type ControllerRefObject,
@@ -7014,5 +7017,168 @@ test('Shopify Customer Account API & Custom Dashboard Specifications', async (t)
         );
       }
     }
+  });
+
+  test('18. Redesigned Signed-Out Customer Account View: Composition, Exact Copy, Accessibility, Error Retention & Duplicate Sign-In Guard', () => {
+    const hostedUrl = 'https://shopify.com/79461089448/account';
+    const defaultHtml = renderToStaticMarkup(
+      React.createElement(CustomerDashboardSignedOutView, {
+        hostedUrl,
+        onNavigateHome: () => {},
+      })
+    );
+
+    // 1. Two-column composition (dark navy brand panel + light sign-in panel), responsive mobile stacking, and design tokens
+    assert.ok(defaultHtml.includes('grid-cols-1 lg:grid-cols-12'));
+    assert.ok(defaultHtml.includes('bg-[#0f172a]'));
+    assert.ok(defaultHtml.includes('bg-white'));
+    assert.ok(defaultHtml.includes('#DC2626'));
+    assert.ok(defaultHtml.includes('font-heading'));
+    assert.ok(defaultHtml.includes('font-sans'));
+    assert.ok(defaultHtml.includes('font-mono'));
+    assert.ok(defaultHtml.includes('src="/sanelow-logo.jpg"'));
+    assert.ok(defaultHtml.includes('focus-visible:ring-2'));
+    assert.ok(defaultHtml.includes('motion-reduce:'));
+
+    // 2. Exact required copy & actions
+    assert.ok(defaultHtml.includes('Your merch. Your space.'));
+    assert.ok(defaultHtml.includes('Access your orders and keep your favourite merch close.'));
+    assert.ok(defaultHtml.includes('Welcome back.'));
+    assert.ok(defaultHtml.includes('Sign in with Shopify'));
+    assert.ok(defaultHtml.includes('href="/api/auth?action=login&amp;returnTo=/account"'));
+    assert.ok(defaultHtml.includes('Continue shopping'));
+    assert.ok(defaultHtml.includes('Account help'));
+    assert.ok(defaultHtml.includes(`href="${hostedUrl}"`));
+    assert.ok(defaultHtml.includes('Saved items stay in this browser and are separated by account.'));
+
+    // 3. Technical auth box, password/email inputs, and invented badges/stats are absent
+    assert.ok(!defaultHtml.includes('Secure Shopify-Hosted Identity'));
+    assert.ok(!defaultHtml.includes('one-time passcodes'));
+    assert.ok(!defaultHtml.includes('<input'));
+    assert.ok(!defaultHtml.includes('type="password"'));
+    assert.ok(!defaultHtml.includes('type="email"'));
+
+    // 4. Session expired & retained authentication error states
+    const expiredHtml = renderToStaticMarkup(
+      React.createElement(CustomerDashboardSignedOutView, {
+        sessionExpired: true,
+        hostedUrl,
+        onNavigateHome: () => {},
+      })
+    );
+    assert.ok(expiredHtml.includes('role="alert"'));
+    assert.ok(expiredHtml.includes('Session expired'));
+
+    const deniedMsg = resolveSignedOutAuthErrorMessage('access_denied', null);
+    assert.ok(deniedMsg && deniedMsg.includes('cancelled or denied'));
+    assert.equal(
+      resolveSignedOutAuthErrorMessage('<script>alert(1)</script>', 'ignored'),
+      'Sign in could not be completed. Please try again.'
+    );
+    assert.equal(
+      resolveSignedOutAuthErrorMessage(null, 'Network timeout while verifying session.'),
+      'Network timeout while verifying session.'
+    );
+
+    const errorHtml = renderToStaticMarkup(
+      React.createElement(CustomerDashboardSignedOutView, {
+        authError: deniedMsg,
+        hostedUrl,
+        onNavigateHome: () => {},
+      })
+    );
+    assert.ok(errorHtml.includes('role="alert"'));
+    assert.ok(errorHtml.includes(deniedMsg!));
+
+    // Inherited Object.prototype property names must return the generic fallback and render safely without throwing
+    for (const protoKey of ['__proto__', 'constructor', 'toString']) {
+      const resolved = resolveSignedOutAuthErrorMessage(protoKey, null);
+      assert.equal(
+        resolved,
+        'Sign in could not be completed. Please try again.',
+        `${protoKey} must resolve to the generic fallback message`
+      );
+      const rendered = renderToStaticMarkup(
+        React.createElement(CustomerDashboardSignedOutView, {
+          authError: resolved,
+          hostedUrl,
+          onNavigateHome: () => {},
+        })
+      );
+      assert.ok(rendered.includes('role="alert"'));
+      assert.ok(rendered.includes('Sign in could not be completed. Please try again.'));
+    }
+
+    // 5. Duplicate sign-in submission prevention (production guardSignInNavigationClick + pending render state)
+    const isSigningInRef = { current: false };
+    let signingInState = false;
+    let firstPrevented = false;
+    let secondPrevented = false;
+    let modifierPrevented = false;
+
+    // Modifier-key click (e.g., Cmd/Ctrl-click new tab) is not blocked or locked
+    const modResult = guardSignInNavigationClick({
+      event: {
+        metaKey: true,
+        button: 0,
+        preventDefault: () => {
+          modifierPrevented = true;
+        },
+      },
+      isSigningInRef,
+      isSigningInState: signingInState,
+      setIsSigningIn: (v) => {
+        signingInState = v;
+      },
+    });
+    assert.equal(modResult, false);
+    assert.equal(modifierPrevented, false);
+    assert.equal(isSigningInRef.current, false);
+
+    // First normal click proceeds and locks synchronous ref + state
+    const firstResult = guardSignInNavigationClick({
+      event: {
+        button: 0,
+        preventDefault: () => {
+          firstPrevented = true;
+        },
+      },
+      isSigningInRef,
+      isSigningInState: signingInState,
+      setIsSigningIn: (v) => {
+        signingInState = v;
+      },
+    });
+    assert.equal(firstResult, true);
+    assert.equal(firstPrevented, false);
+    assert.equal(isSigningInRef.current, true);
+    assert.equal(signingInState, true);
+
+    // Immediate duplicate click calls preventDefault() cleanly
+    const secondResult = guardSignInNavigationClick({
+      event: {
+        button: 0,
+        preventDefault: () => {
+          secondPrevented = true;
+        },
+      },
+      isSigningInRef,
+      isSigningInState: signingInState,
+      setIsSigningIn: (v) => {
+        signingInState = v;
+      },
+    });
+    assert.equal(secondResult, false);
+    assert.equal(secondPrevented, true);
+
+    const submittingHtml = renderToStaticMarkup(
+      React.createElement(CustomerDashboardSignedOutView, {
+        hostedUrl,
+        isSigningIn: true,
+        onNavigateHome: () => {},
+      })
+    );
+    assert.ok(submittingHtml.includes('aria-disabled="true"'));
+    assert.ok(submittingHtml.includes('Redirecting to Shopify…'));
   });
 });
