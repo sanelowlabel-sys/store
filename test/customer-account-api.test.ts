@@ -87,6 +87,7 @@ import {
 } from '../src/lib/shopify';
 import React from 'react';
 import { WishlistDrawer } from '../src/components/WishlistDrawer';
+import { Navbar, resolveNavbarAccountDisplay, type HeaderSessionStatus } from '../src/components/Navbar';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 function createMockReqRes(options: {
@@ -4463,6 +4464,327 @@ test('Shopify Customer Account API & Custom Dashboard Specifications', async (t)
     // Cleanup environment
     delete process.env.CUSTOMER_ACCOUNT_TESTING_ENABLED;
     delete process.env.CUSTOMER_ACCOUNT_TESTER_SECRET;
+  });
+
+  await t.test('14. Storefront Header Account Label & Session State Consistency (Desktop, Collapsed Header, and Mobile Nav)', async () => {
+    const extractAnchorHtml = (html: string, id: string): string => {
+      const idx = html.indexOf(`id="${id}"`);
+      assert.ok(idx !== -1, `Expected element #${id} to be present in rendered Navbar`);
+      const tagStart = html.lastIndexOf('<a', idx);
+      const tagEnd = html.indexOf('</a>', idx);
+      assert.ok(tagStart !== -1 && tagEnd !== -1, `Expected closing </a> for #${id}`);
+      return html.slice(tagStart, tagEnd + 4);
+    };
+
+    const renderNavbarForSession = (opts: {
+      sessionStatus?: HeaderSessionStatus;
+      customerSession?: any;
+      isCustomAccountsEnabled?: boolean;
+      customerAccountUrl?: string;
+    }) => {
+      const html = renderToStaticMarkup(
+        React.createElement(Navbar, {
+          currentCategory: 'all',
+          onSelectCategory: () => {},
+          currency: 'USD',
+          onSelectCurrency: () => {},
+          cartCount: 0,
+          cartTotalAmount: 0,
+          wishlistCount: 0,
+          onOpenCart: () => {},
+          onOpenWishlist: () => {},
+          onOpenTrackOrder: () => {},
+          onOpenCustomerPortal: () => {},
+          onNavigateAccount: () => {},
+          isCustomAccountsEnabled: opts.isCustomAccountsEnabled ?? false,
+          sessionStatus: opts.sessionStatus,
+          customerSession: opts.customerSession ?? null,
+          customerAccountUrl: opts.customerAccountUrl ?? '',
+          searchQuery: '',
+          onSearchChange: () => {},
+          defaultMobileMenuOpen: true,
+        })
+      );
+      return {
+        html,
+        desktopAndCollapsedLink: extractAnchorHtml(html, 'nav-customer-account-link'),
+        mobileNavLink: extractAnchorHtml(html, 'mobile-nav-sign-in'),
+      };
+    };
+
+    // 1. Verified signed-in customer WITHOUT customer.name (matches OIDC openid+email session):
+    // Must render "My account" linking to /account across desktop, collapsed header, and mobile navigation.
+    {
+      const signedInWithoutName = {
+        authenticated: true,
+        configured: true,
+        enabled: false,
+        isTester: true,
+        customer: {
+          id: 'gid://shopify/Customer/99887766',
+          email: 'collector@example.com',
+          name: null,
+        },
+        hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+      };
+      const { desktopAndCollapsedLink, mobileNavLink } = renderNavbarForSession({
+        sessionStatus: 'authenticated',
+        customerSession: signedInWithoutName,
+        isCustomAccountsEnabled: false,
+      });
+
+      assert.ok(desktopAndCollapsedLink.includes('href="/account"'), 'Signed-in header link must target /account');
+      assert.ok(desktopAndCollapsedLink.includes('aria-label="My account"'), 'Signed-in header aria-label must be "My account"');
+      assert.ok(desktopAndCollapsedLink.includes('>My account</span>'), 'Signed-in header text must say "My account"');
+      assert.ok(!desktopAndCollapsedLink.includes('Sign in / Create account'), 'Signed-in header must NOT show Sign in / Create account');
+      assert.ok(!desktopAndCollapsedLink.includes('target="_blank"'), 'Signed-in header must navigate in-app to /account');
+
+      assert.ok(mobileNavLink.includes('href="/account"'), 'Signed-in mobile nav link must target /account');
+      assert.ok(mobileNavLink.includes('aria-label="My account"'), 'Signed-in mobile nav aria-label must be "My account"');
+      assert.ok(mobileNavLink.includes('>My account</span>'), 'Signed-in mobile nav text must say "My account"');
+      assert.ok(!mobileNavLink.includes('Sign in / Create account'), 'Signed-in mobile nav must NOT show Sign in / Create account');
+      assert.ok(!mobileNavLink.includes('target="_blank"'), 'Signed-in mobile nav must navigate in-app to /account');
+    }
+
+    // 2. Verified signed-in customer WITH customer.name still shows consistent "My account":
+    {
+      const signedInWithName = {
+        authenticated: true,
+        configured: true,
+        enabled: true,
+        isTester: false,
+        customer: {
+          id: 'gid://shopify/Customer/11223344',
+          email: 'collector@example.com',
+          name: 'Sanelow Collector',
+        },
+        hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+      };
+      const { desktopAndCollapsedLink, mobileNavLink } = renderNavbarForSession({
+        sessionStatus: 'authenticated',
+        customerSession: signedInWithName,
+        isCustomAccountsEnabled: true,
+      });
+      assert.ok(desktopAndCollapsedLink.includes('>My account</span>'));
+      assert.ok(mobileNavLink.includes('>My account</span>'));
+      assert.ok(!desktopAndCollapsedLink.includes('Hi,'));
+      assert.ok(!mobileNavLink.includes('Account ('));
+    }
+
+    // 3. Confirmed signed-out customer retains "Sign in / Create account" and existing sign-in/hosted-fallback behavior:
+    {
+      // 3a. Production hosted fallback (custom accounts disabled, no hosted URL)
+      const guestProdNoUrl = {
+        authenticated: false,
+        configured: false,
+        enabled: false,
+        isTester: false,
+        hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+      };
+      const { desktopAndCollapsedLink, mobileNavLink } = renderNavbarForSession({
+        sessionStatus: 'guest',
+        customerSession: guestProdNoUrl,
+        isCustomAccountsEnabled: false,
+        customerAccountUrl: '',
+      });
+      assert.ok(desktopAndCollapsedLink.includes('href="#sign-in"'));
+      assert.ok(desktopAndCollapsedLink.includes('aria-label="Sign in / Create account"'));
+      assert.ok(desktopAndCollapsedLink.includes('>Sign in / Create account</span>'));
+      assert.ok(mobileNavLink.includes('href="#sign-in"'));
+      assert.ok(mobileNavLink.includes('aria-label="Sign in / Create account"'));
+      assert.ok(mobileNavLink.includes('>Sign in / Create account</span>'));
+
+      const displayNoUrl = resolveNavbarAccountDisplay({
+        sessionStatus: 'guest',
+        customerSession: guestProdNoUrl,
+        isCustomAccountsEnabled: false,
+        customerAccountUrl: '',
+      });
+      assert.equal(displayNoUrl.openPortalModal, true);
+      assert.equal(displayNoUrl.useInAppAccountNav, false);
+
+      // 3b. Production hosted fallback with configured Shopify hosted URL
+      const hostedUrlRes = renderNavbarForSession({
+        sessionStatus: 'guest',
+        customerSession: guestProdNoUrl,
+        isCustomAccountsEnabled: false,
+        customerAccountUrl: 'https://shopify.com/79461089448/account',
+      });
+      assert.ok(hostedUrlRes.desktopAndCollapsedLink.includes('href="https://shopify.com/79461089448/account"'));
+      assert.ok(hostedUrlRes.desktopAndCollapsedLink.includes('target="_blank"'));
+      assert.ok(hostedUrlRes.desktopAndCollapsedLink.includes('>Sign in / Create account</span>'));
+      assert.ok(hostedUrlRes.mobileNavLink.includes('href="https://shopify.com/79461089448/account"'));
+      assert.ok(hostedUrlRes.mobileNavLink.includes('>Sign in / Create account</span>'));
+
+      // 3c. Tester access ONLY (isTester: true, authenticated: false) must NEVER show "My account"!
+      const testerOnlySession = {
+        authenticated: false,
+        configured: true,
+        enabled: false,
+        isTester: true,
+        hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+      };
+      const testerGuestRes = renderNavbarForSession({
+        sessionStatus: 'guest',
+        customerSession: testerOnlySession,
+        isCustomAccountsEnabled: false,
+      });
+      assert.ok(testerGuestRes.desktopAndCollapsedLink.includes('href="/account"'));
+      assert.ok(testerGuestRes.desktopAndCollapsedLink.includes('aria-label="Sign in / Create account"'));
+      assert.ok(testerGuestRes.desktopAndCollapsedLink.includes('>Sign in / Create account</span>'));
+      assert.ok(!testerGuestRes.desktopAndCollapsedLink.includes('My account'));
+      assert.ok(testerGuestRes.mobileNavLink.includes('href="/account"'));
+      assert.ok(testerGuestRes.mobileNavLink.includes('>Sign in / Create account</span>'));
+      assert.ok(!testerGuestRes.mobileNavLink.includes('My account'));
+    }
+
+    // 4. Unresolved, temporarily unavailable, or malformed session states must show neutral "Account":
+    {
+      // 4a. Initial unresolved state (before session fetch finishes) or failed/rejected fetch
+      const unresolvedRes = renderNavbarForSession({
+        sessionStatus: 'unresolved',
+        customerSession: null,
+        isCustomAccountsEnabled: false,
+      });
+      assert.ok(unresolvedRes.desktopAndCollapsedLink.includes('aria-label="Account"'));
+      assert.ok(unresolvedRes.desktopAndCollapsedLink.includes('>Account</span>'));
+      assert.ok(!unresolvedRes.desktopAndCollapsedLink.includes('My account'));
+      assert.ok(!unresolvedRes.desktopAndCollapsedLink.includes('Sign in / Create account'));
+
+      assert.ok(unresolvedRes.mobileNavLink.includes('aria-label="Account"'));
+      assert.ok(unresolvedRes.mobileNavLink.includes('>Account</span>'));
+      assert.ok(!unresolvedRes.mobileNavLink.includes('My account'));
+      assert.ok(!unresolvedRes.mobileNavLink.includes('Sign in / Create account'));
+
+      // 4b. Malformed authenticated payload missing valid customer.id (both with sessionStatus='unresolved' and omitted)
+      const malformedSession = {
+        authenticated: true,
+        configured: true,
+        enabled: true,
+        isTester: true,
+        customer: { id: '', name: 'Spoofed' },
+        hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+      };
+      const malformedRes = renderNavbarForSession({
+        sessionStatus: undefined,
+        customerSession: malformedSession,
+      });
+      assert.ok(malformedRes.desktopAndCollapsedLink.includes('>Account</span>'));
+      assert.ok(malformedRes.mobileNavLink.includes('>Account</span>'));
+      assert.ok(!malformedRes.desktopAndCollapsedLink.includes('My account'));
+    }
+
+    // 5. Logout lifecycle: failed logout must NOT falsely show signed out; successful logout updates label to "Sign in / Create account":
+    {
+      let sessionStatus: HeaderSessionStatus = 'authenticated';
+      let customerSession: any = {
+        authenticated: true,
+        configured: true,
+        enabled: false,
+        isTester: true,
+        customer: { id: 'gid://shopify/Customer/555', email: 'c@example.com', name: null },
+        hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+      };
+      let isLogoutInProgress = false;
+
+      const renderCurrentHeader = () =>
+        renderNavbarForSession({
+          sessionStatus: isLogoutInProgress ? 'unresolved' : sessionStatus,
+          customerSession: isLogoutInProgress ? null : customerSession,
+        });
+
+      // Initially verified signed in -> "My account"
+      let rendered = renderCurrentHeader();
+      assert.ok(rendered.desktopAndCollapsedLink.includes('>My account</span>'));
+      assert.ok(rendered.mobileNavLink.includes('>My account</span>'));
+
+      // Logout starts -> immediately unresolved -> neutral "Account"
+      isLogoutInProgress = true;
+      sessionStatus = 'unresolved';
+      customerSession = null;
+      rendered = renderCurrentHeader();
+      assert.ok(rendered.desktopAndCollapsedLink.includes('>Account</span>'));
+      assert.ok(rendered.mobileNavLink.includes('>Account</span>'));
+      assert.ok(!rendered.desktopAndCollapsedLink.includes('Sign in / Create account'));
+
+      // Mock failed logoutCustomer() (HTTP 500 from /api/auth?action=logout)
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ success: false, error: 'STORAGE_DELETION_FAILED' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      try {
+        const failRes = await logoutCustomer();
+        assert.equal(failRes.success, false);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      // Failed logout leaves isLogoutInProgress=true and sessionStatus='unresolved' -> must NOT show "Sign in / Create account"!
+      rendered = renderCurrentHeader();
+      assert.ok(
+        rendered.desktopAndCollapsedLink.includes('>Account</span>'),
+        'Failed logout must keep header neutral ("Account"), never falsely showing signed out'
+      );
+      assert.ok(
+        rendered.mobileNavLink.includes('>Account</span>'),
+        'Failed logout must keep mobile nav neutral ("Account"), never falsely showing signed out'
+      );
+      assert.ok(!rendered.desktopAndCollapsedLink.includes('Sign in / Create account'));
+      assert.ok(!rendered.mobileNavLink.includes('Sign in / Create account'));
+
+      // Deliberate recovery (Resume Session) -> restores authenticated "My account"
+      isLogoutInProgress = false;
+      sessionStatus = 'authenticated';
+      customerSession = {
+        authenticated: true,
+        configured: true,
+        enabled: false,
+        isTester: true,
+        customer: { id: 'gid://shopify/Customer/555', email: 'c@example.com', name: null },
+        hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+      };
+      rendered = renderCurrentHeader();
+      assert.ok(rendered.desktopAndCollapsedLink.includes('>My account</span>'));
+      assert.ok(rendered.mobileNavLink.includes('>My account</span>'));
+
+      // Successful logout -> logoutCustomer() confirms { success: true }, session sync confirms authenticated:false -> "Sign in / Create account"
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ success: true, logoutUrl: 'https://shopify.com/logout' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      try {
+        const okRes = await logoutCustomer();
+        assert.equal(okRes.success, true);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      isLogoutInProgress = false;
+      sessionStatus = 'guest';
+      customerSession = {
+        authenticated: false,
+        configured: true,
+        enabled: false,
+        isTester: true,
+        hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+      };
+      rendered = renderCurrentHeader();
+      assert.ok(rendered.desktopAndCollapsedLink.includes('>Sign in / Create account</span>'));
+      assert.ok(rendered.mobileNavLink.includes('>Sign in / Create account</span>'));
+    }
+
+    // 6. Verify App.tsx passes authoritative sessionStatus to Navbar
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const appSource = fs.readFileSync(path.resolve('./src/App.tsx'), 'utf-8');
+    assert.match(
+      appSource,
+      /sessionStatus=\{isLogoutInProgressRef\.current\s*\?\s*'unresolved'\s*:\s*sessionStatus\}/,
+      'App.tsx must pass logout-guarded authoritative sessionStatus to Navbar'
+    );
   });
 });
 
