@@ -93,7 +93,7 @@ import {
 interface RouteState {
   view: 'home' | 'product' | 'collection' | 'account' | 'gallery';
   handle?: string;
-  accountSection?: 'overview' | 'orders' | 'order-detail' | 'profile';
+  accountSection?: 'overview' | 'orders' | 'order-detail' | 'saved' | 'profile';
   orderId?: string;
 }
 
@@ -110,6 +110,7 @@ function parseUrlRoute(): RouteState {
   const orderDetailMatch = pathname.match(/^\/account\/orders\/([a-zA-Z0-9_\-:]+)/);
   if (orderDetailMatch) return { view: 'account', accountSection: 'order-detail', orderId: orderDetailMatch[1] };
   if (pathname === '/account/orders' || pathname.startsWith('/account/orders')) return { view: 'account', accountSection: 'orders' };
+  if (pathname === '/account/saved' || pathname.startsWith('/account/saved')) return { view: 'account', accountSection: 'saved' };
   if (pathname === '/account/profile' || pathname.startsWith('/account/profile')) return { view: 'account', accountSection: 'profile' };
   if (pathname === '/account' || pathname.startsWith('/account')) return { view: 'account', accountSection: 'overview' };
 
@@ -962,7 +963,7 @@ export default function App() {
         </main>
       )}
 
-      {/* ROUTE 3: Dedicated Customer Account Dashboard (/account, /account/orders, /account/profile) */}
+      {/* ROUTE 3: Dedicated Customer Account Dashboard (/account, /account/orders, /account/saved, /account/profile) */}
       {route.view === 'account' && (
         <main className="flex-1 w-full min-w-0">
           <CustomerDashboard
@@ -970,6 +971,12 @@ export default function App() {
             initialOrderId={route.orderId}
             onNavigateHome={() => navigateTo('/')}
             currency={currency}
+            savedItems={wishlist}
+            isSavedItemsDisabled={isWishlistDisabled}
+            onToggleSavedItem={handleToggleWishlist}
+            onAddToCartFromSaved={(prod) => setSelectedProduct(prod)}
+            onViewSavedProduct={(prod) => navigateTo(`/products/${prod.handle}`)}
+            onRetrySession={syncSession}
           />
         </main>
       )}
