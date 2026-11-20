@@ -1,78 +1,53 @@
-import React, { useState } from 'react';
-import { ArrowRight, Check, Truck, Lock, User, Package, Layers, ShoppingBag, Mail } from 'lucide-react';
+import React from 'react';
+import { ArrowRight, Truck, Lock, User, Package, Layers, ShoppingBag, Mail } from 'lucide-react';
 import { SHOPIFY_CUSTOMER_ACCOUNT_URL, STORE_CONTACT_EMAIL } from '../lib/shopify';
 
 interface FooterProps {
   onOpenFaq?: () => void;
   onOpenTrackOrder: () => void;
   onOpenCustomerPortal?: () => void;
+  onShopAllMerch?: () => void;
   customerAccountUrl?: string;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   onOpenTrackOrder,
   onOpenCustomerPortal,
+  onShopAllMerch,
   customerAccountUrl: _customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
 }) => {
-  const [newsletterEmail, setNewsletterEmail] = useState('');
-  const [isSubscribed, setIsSubscribed] = useState(false);
-
-  const handleSubscribe = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newsletterEmail.trim()) {
-      setIsSubscribed(true);
-      setNewsletterEmail('');
-    }
-  };
-
   return (
     <footer className="bg-white border-t border-[#e2e8f0] text-[#64748b]">
-      {/* Newsletter signup container */}
+      {/* Storefront CTA container */}
       <div className="border-b border-[#e2e8f0] py-12 lg:py-14">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="p-8 sm:p-10 rounded-2xl bg-[#f8fafc] border border-[#e2e8f0] flex flex-col lg:flex-row items-center justify-between gap-8 shadow-xs">
             <div className="space-y-2 text-center lg:text-left max-w-xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-[#e2e8f0] text-red-600 text-xs font-mono font-bold uppercase shadow-xs">
-                <span>EXCLUSIVE DROP ACCESS</span>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-[#e2e8f0] text-[#DC2626] text-xs font-mono font-bold uppercase shadow-xs">
+                <span>SANELOW MUSIC GROUP MERCH</span>
               </div>
               <h3 className="text-2xl sm:text-3xl font-heading font-extrabold text-[#0f172a] tracking-tight">
-                Get 15% OFF Your First Merch Drop.
+                Explore the latest merch.
               </h3>
               <p className="text-xs sm:text-sm text-[#64748b]">
-                Subscribe for private pre-order allocations, archive restock notifications, and early streetwear drop announcements.
+                Browse the collection and find your next favourite.
               </p>
             </div>
 
-            <div className="w-full lg:w-auto">
-              {isSubscribed ? (
-                <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-mono flex items-center gap-3">
-                  <Check className="w-5 h-5 shrink-0 text-red-600" />
-                  <div>
-                    <div className="font-bold uppercase">You are on the VIP Drop list!</div>
-                    <div className="text-[11px] text-[#64748b] mt-0.5">
-                      Use code <strong className="text-[#0f172a]">MERCH15</strong> at checkout for 15% off your entire bag.
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-2 w-full max-w-md">
-                  <input
-                    type="email"
-                    required
-                    value={newsletterEmail}
-                    onChange={(e) => setNewsletterEmail(e.target.value)}
-                    placeholder="Enter your email address..."
-                    className="px-4 py-3 rounded-xl bg-white border border-[#e2e8f0] text-xs text-[#0f172a] placeholder-[#64748b] font-mono focus:outline-none focus:border-red-600 focus-visible:ring-2 focus-visible:ring-red-600 flex-1 shadow-xs"
-                  />
-                  <button
-                    type="submit"
-                    className="px-6 py-3 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
-                  >
-                    <span>Join Drop List</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                </form>
-              )}
+            <div className="w-full lg:w-auto flex justify-center lg:justify-end">
+              <a
+                href="/"
+                onClick={(e) => {
+                  if (onShopAllMerch && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                    e.preventDefault();
+                    onShopAllMerch();
+                  }
+                }}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-[#DC2626] hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-xs inline-flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#DC2626] focus-visible:ring-offset-2 motion-reduce:transition-none"
+              >
+                <span>Shop all merch</span>
+                <ArrowRight className="w-4 h-4" />
+              </a>
             </div>
           </div>
         </div>

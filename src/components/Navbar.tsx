@@ -175,17 +175,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="h-full bg-red-600 animate-[shimmer_1s_infinite] w-2/5" />
         </div>
       )}
-      {/* Top Notice Bar */}
-      <div className="bg-[#0f172a] text-white text-[11px] font-mono py-1.5 px-4 text-center tracking-wider flex items-center justify-center gap-3">
-        <span className="flex items-center gap-1.5 text-red-500 font-bold">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
-          SUMMER '26 ARCHIVE DROP LIVE
-        </span>
-        <span className="hidden sm:inline text-slate-400">•</span>
-        <span className="hidden sm:inline text-slate-300">
-          Official Shopify Storefront • South Africa & Worldwide Delivery
-        </span>
-      </div>
 
       {/* Main Bar: CSS Grid with 1fr auto 1fr on collapsed viewports (< xl) guarantees exact center alignment */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
