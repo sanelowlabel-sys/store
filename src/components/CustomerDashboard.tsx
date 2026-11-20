@@ -667,6 +667,237 @@ export function executeDashboardResumeSession(options: ExecuteDashboardResumeSes
   return attemptId;
 }
 
+const GENERIC_SIGNED_OUT_AUTH_ERROR = 'Sign in could not be completed. Please try again.';
+
+const KNOWN_AUTH_ERROR_MESSAGES = new Map<string, string>([
+  ['access_denied', 'Sign in was cancelled or denied. You can try signing in again below.'],
+  ['token_exchange_failed', 'Unable to complete sign in with Shopify. Please try again.'],
+  ['invalid_token_payload', 'We could not verify your Shopify sign-in response. Please try again.'],
+  ['tester_session_revoked', 'Your tester access session ended. Re-verify tester access or sign in again.'],
+]);
+
+/**
+ * Resolves a safe, user-facing authentication error message for the signed-out view
+ * from either controller dataError or URL query auth_error codes returned by /api/auth.
+ * Uses a Map so inherited Object.prototype keys (e.g. "__proto__", "constructor", "toString")
+ * always resolve to the generic fallback message.
+ */
+export function resolveSignedOutAuthErrorMessage(
+  authErrorCode?: string | null,
+  fallbackError?: string | null
+): string | null {
+  const code = typeof authErrorCode === 'string' ? authErrorCode.trim() : '';
+  if (code) {
+    return KNOWN_AUTH_ERROR_MESSAGES.get(code) ?? GENERIC_SIGNED_OUT_AUTH_ERROR;
+  }
+  const cleanFallback = typeof fallbackError === 'string' ? fallbackError.trim() : '';
+  return cleanFallback || null;
+}
+
+/**
+ * Prevents duplicate sign-in navigation requests on rapid repeated clicks while preserving
+ * modifier/middle-click browser behavior.
+ */
+export function guardSignInNavigationClick(params: {
+  event: {
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    button?: number;
+    preventDefault: () => void;
+  };
+  isSigningInRef: { current: boolean };
+  isSigningInState: boolean;
+  setIsSigningIn: (value: boolean) => void;
+}): boolean {
+  const { event, isSigningInRef, isSigningInState, setIsSigningIn } = params;
+  if (
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey ||
+    (event.button !== undefined && event.button !== 0)
+  ) {
+    return false;
+  }
+  if (isSigningInRef.current || isSigningInState) {
+    event.preventDefault();
+    return false;
+  }
+  isSigningInRef.current = true;
+  setIsSigningIn(true);
+  return true;
+}
+
+export interface CustomerDashboardSignedOutViewProps {
+  sessionExpired?: boolean;
+  authError?: string | null;
+  hostedUrl: string;
+  loginHref?: string;
+  isSigningIn?: boolean;
+  onStartSignIn?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+  onNavigateHome: () => void;
+}
+
+export function CustomerDashboardSignedOutView({
+  sessionExpired = false,
+  authError = null,
+  hostedUrl,
+  loginHref = '/api/auth?action=login&returnTo=/account',
+  isSigningIn = false,
+  onStartSignIn,
+  onNavigateHome,
+}: CustomerDashboardSignedOutViewProps) {
+  return (
+    <div className="w-full bg-[#f8fafc] border-t border-[#e2e8f0] font-sans text-[#0f172a]">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16">
+        <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch rounded-2xl overflow-hidden border border-[#e2e8f0] bg-white shadow-sm">
+          {/* Dark Navy Brand Panel */}
+          <section
+            aria-label="Sanelow Merch customer space"
+            className="lg:col-span-6 bg-[#0f172a] text-white p-6 sm:p-10 lg:p-12 flex flex-col justify-between gap-8 lg:gap-12 min-w-0"
+          >
+            <div className="space-y-6 lg:space-y-8 min-w-0">
+              {/* Brand Lockup */}
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden border border-slate-700 bg-black shrink-0">
+                  <img
+                    src="/sanelow-logo.jpg"
+                    alt="Sanelow"
+                    width={48}
+                    height={48}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-heading font-bold tracking-tight text-white">
+                    Sanelow Merch
+                  </p>
+                  <p className="text-[11px] font-mono text-slate-400">
+                    Customer account
+                  </p>
+                </div>
+              </div>
+
+              {/* Headline & Supporting Copy */}
+              <div className="space-y-3 sm:space-y-4">
+                <h1 className="text-3xl sm:text-4xl lg:text-[2.625rem] font-heading font-extrabold tracking-tight text-white leading-[1.1] text-balance">
+                  Your merch. Your space.
+                </h1>
+                <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-md">
+                  Access your orders and keep your favourite merch close.
+                </p>
+              </div>
+            </div>
+
+            {/* Quiet Hairline Footer on Brand Panel */}
+            <div className="pt-5 sm:pt-6 border-t border-slate-800 space-y-2 min-w-0">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Saved items stay in this browser and are separated by account.
+              </p>
+              <p className="text-[11px] font-mono text-slate-400">
+                Orders <span aria-hidden="true">·</span> Saved items <span aria-hidden="true">·</span> Profile
+              </p>
+            </div>
+          </section>
+
+          {/* Clean Light Sign-In Panel */}
+          <section
+            aria-labelledby="customer-signin-heading"
+            className="lg:col-span-6 bg-white p-6 sm:p-10 lg:p-12 flex flex-col justify-between gap-8 min-w-0"
+          >
+            <div className="space-y-6 min-w-0">
+              <div className="space-y-2">
+                <p className="text-[11px] font-mono font-semibold text-[#DC2626] tracking-wide">
+                  Account sign in
+                </p>
+                <h2
+                  id="customer-signin-heading"
+                  className="text-2xl sm:text-3xl font-heading font-extrabold tracking-tight text-[#0f172a]"
+                >
+                  Welcome back.
+                </h2>
+                <p className="text-sm text-[#475569] leading-relaxed">
+                  Sign in with your Shopify account to view your orders and profile details.
+                </p>
+              </div>
+
+              {(sessionExpired || authError) && (
+                <div
+                  role="alert"
+                  className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-900 flex items-start gap-3"
+                >
+                  <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" aria-hidden="true" />
+                  <div className="space-y-1 text-xs leading-relaxed min-w-0">
+                    <p className="font-semibold text-red-950">
+                      {sessionExpired ? 'Session expired' : 'Sign in error'}
+                    </p>
+                    <p className="text-red-800">
+                      {authError ||
+                        'Your session expired. Sign in again to access your customer account.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3 pt-1">
+                <a
+                  href={loginHref}
+                  onClick={onStartSignIn}
+                  aria-disabled={isSigningIn ? 'true' : undefined}
+                  aria-busy={isSigningIn ? 'true' : undefined}
+                  className={`w-full inline-flex items-center justify-center gap-2 min-h-[48px] px-6 py-3 bg-[#DC2626] hover:bg-[#b91c1c] text-white rounded-xl text-sm font-semibold tracking-wide transition-colors shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#DC2626] focus-visible:ring-offset-2 motion-reduce:transition-none ${
+                    isSigningIn ? 'opacity-75 pointer-events-none cursor-wait' : 'cursor-pointer'
+                  }`}
+                >
+                  {isSigningIn ? (
+                    <>
+                      <RefreshCw
+                        className="w-4 h-4 animate-spin motion-reduce:animate-none shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span>Redirecting to Shopify…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Sign in with Shopify</span>
+                      <ChevronRight className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    </>
+                  )}
+                </a>
+
+                <button
+                  type="button"
+                  onClick={onNavigateHome}
+                  className="w-full inline-flex items-center justify-center gap-2 min-h-[44px] px-6 py-2.5 bg-white hover:bg-[#f8fafc] text-[#0f172a] border border-[#e2e8f0] rounded-xl text-sm font-semibold tracking-wide transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#DC2626] focus-visible:ring-offset-2 motion-reduce:transition-none"
+                >
+                  <ArrowLeft className="w-4 h-4 text-[#64748b] shrink-0" aria-hidden="true" />
+                  <span>Continue shopping</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-5 border-t border-[#e2e8f0] flex flex-wrap items-center justify-between gap-2 text-xs text-[#64748b]">
+              <span>Need help accessing your account?</span>
+              <a
+                href={hostedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 min-h-[44px] sm:min-h-[36px] text-xs font-medium text-[#475569] hover:text-[#0f172a] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#DC2626] rounded px-1 whitespace-nowrap shrink-0 motion-reduce:transition-none"
+              >
+                <HelpCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>Account help</span>
+                <ExternalLink className="w-3 h-3 shrink-0" aria-hidden="true" />
+              </a>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export interface CustomerDashboardProps {
   initialTab?: DashboardTab;
   initialOrderId?: string;
@@ -2151,10 +2382,25 @@ export function CustomerDashboard({
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const activeLogoutAttemptIdRef = useRef<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const isSigningInRef = useRef(false);
 
   // Order list search / filter state (client-side over loaded page)
   const [orderSearch, setOrderSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState<OrderStatusFilter>('all');
+
+  useEffect(() => {
+    const handlePageShow = (ev: PageTransitionEvent) => {
+      if (ev.persisted) {
+        isSigningInRef.current = false;
+        setIsSigningIn(false);
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, []);
 
   useEffect(() => {
     return bindCustomerDashboardLifecycle({
@@ -2174,6 +2420,15 @@ export function CustomerDashboard({
   useEffect(() => {
     controllerRef.current?.syncRouteProps(initialTab, initialOrderId);
   }, [initialTab, initialOrderId]);
+
+  function handleStartSignIn(e: React.MouseEvent<HTMLAnchorElement>) {
+    guardSignInNavigationClick({
+      event: e,
+      isSigningInRef,
+      isSigningInState: isSigningIn,
+      setIsSigningIn,
+    });
+  }
 
   // Handle Logout
   async function handleLogout() {
@@ -2309,65 +2564,21 @@ export function CustomerDashboard({
   // STATE C: Unauthenticated or Session Expired
   // --------------------------------------------------------------------------
   if (!session?.authenticated || sessionExpired) {
+    const authErrorCode =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('auth_error')
+        : null;
+    const signedOutError = resolveSignedOutAuthErrorMessage(authErrorCode, dataError);
+
     return (
-      <div className="max-w-2xl mx-auto px-4 py-16 md:py-24 font-sans">
-        <div className="bg-white border border-[#e2e8f0] rounded-2xl p-6 md:p-10 shadow-xs text-center space-y-6">
-          <div className="w-16 h-16 mx-auto rounded-full bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shadow-xs">
-            <User className="w-8 h-8" />
-          </div>
-
-          <div className="space-y-2">
-            <h1 className="text-2xl font-heading font-extrabold uppercase tracking-tight text-[#0f172a]">
-              {sessionExpired ? 'Session Expired' : 'Customer Account Sign In'}
-            </h1>
-            <p className="text-xs md:text-sm text-[#64748b] max-w-md mx-auto leading-relaxed">
-              {sessionExpired
-                ? 'Your secure customer session has expired. Sign in again to view your order history and tracked shipments.'
-                : 'Sign in with your Shopify Customer Account to view order history, fulfillment status, and tracked parcel shipments.'}
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-left space-y-2 shadow-xs">
-            <div className="flex items-center gap-2 text-xs font-bold text-[#0f172a] font-mono uppercase">
-              <ShieldCheck className="w-4 h-4 text-red-600" />
-              <span>Secure Shopify-Hosted Identity</span>
-            </div>
-            <p className="text-[12px] text-[#64748b] leading-relaxed">
-              We authenticate via Shopify’s official Customer Account API using email one-time passcodes (no passwords stored).
-            </p>
-          </div>
-
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <a
-              href="/api/auth?action=login&returnTo=/account"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-red-600 hover:bg-[#b91c1c] text-white rounded-xl text-xs font-semibold uppercase tracking-wider transition-colors shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
-            >
-              <span>Sign In with Shopify</span>
-              <ChevronRight className="w-4 h-4" />
-            </a>
-
-            <button
-              type="button"
-              onClick={onNavigateHome}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-white hover:bg-[#f8fafc] text-[#0f172a] border border-[#e2e8f0] rounded-xl text-xs font-semibold uppercase tracking-wider transition-colors shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
-            >
-              <span>Continue Shopping</span>
-            </button>
-          </div>
-
-          <div className="pt-4 border-t border-[#e2e8f0]">
-            <a
-              href={hostedUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-[#64748b] hover:text-[#0f172a] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
-            >
-              <span>Having trouble? Open Shopify Hosted Portal</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
-        </div>
-      </div>
+      <CustomerDashboardSignedOutView
+        sessionExpired={sessionExpired}
+        authError={signedOutError}
+        hostedUrl={hostedUrl}
+        isSigningIn={isSigningIn}
+        onStartSignIn={handleStartSignIn}
+        onNavigateHome={onNavigateHome}
+      />
     );
   }
 
