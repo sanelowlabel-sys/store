@@ -84,6 +84,20 @@ import {
   type WishlistTransitionResult,
   type WishlistAction,
   logoutCustomer,
+  SessionVerificationCoordinator,
+  createSessionVerificationCoordinator,
+  defaultSessionCoordinator,
+  TabReturnTracker,
+  bindBrowserSessionSync,
+  broadcastCrossTabSessionInvalidation,
+  SESSION_INVALIDATION_CHANNEL_NAME,
+  SESSION_INVALIDATION_STORAGE_KEY,
+  DEFAULT_REMOTE_LOGOUT_GRACE_MS,
+  createLogoutAttemptId,
+  parseCrossTabInvalidationMessage,
+  type CrossTabInvalidationMessage,
+  type SessionVerificationState,
+  type SessionVerificationStatus,
 } from '../src/lib/shopify';
 import React from 'react';
 import { WishlistDrawer } from '../src/components/WishlistDrawer';
@@ -93,6 +107,8 @@ import {
   CustomerDashboardController,
   bindCustomerDashboardLifecycle,
   createCustomerDashboardController,
+  executeDashboardLogout,
+  executeDashboardResumeSession,
   filterLoadedOrders,
   getOrderTrackingLinks,
   type ControllerRefObject,
@@ -5645,6 +5661,1358 @@ test('Shopify Customer Account API & Custom Dashboard Specifications', async (t)
       );
     }
   });
+
+  await t.test('17. SessionVerificationCoordinator, TabReturnTracker & Cross-Tab Sync: Strict Pending Isolation (A->B & A->Guest), True Tab Return Deduplication, Loading vs Retry UI, Failures & Logout Late Responses', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    const createMemoryStorage = (): WishlistStorageAdapter => {
+      const store = new Map<string, string>();
+      return {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          store.set(k, v);
+        },
+        removeItem: (k: string) => {
+          store.delete(k);
+        },
+      };
+    };
+
+    const makeProduct = (id: string, title: string): any => ({
+      id,
+      handle: id,
+      title,
+      tagline: title,
+      description: title,
+      priceAmount: 50,
+      currencyCode: 'USD',
+      category: 'graphic-tees',
+      tags: [],
+      dropCollection: 'Drop 26',
+      sku: id,
+      availableForSale: true,
+      variants: [],
+      images: [],
+    });
+
+    const customerAId = 'gid://shopify/Customer/101';
+    const customerBId = 'gid://shopify/Customer/202';
+    const customerAProducts = [
+      makeProduct('prod_1', 'Studio Tee 1'),
+      makeProduct('prod_2', 'Studio Hoodie 2'),
+      makeProduct('prod_3', 'Studio Cap 3'),
+      makeProduct('prod_4', 'Studio Tote 4'),
+    ];
+    const customerBProducts = [makeProduct('prod_b1', 'Customer B Jacket')];
+    const guestProducts = [makeProduct('prod_g1', 'Guest Poster')];
+    const delayedToggleProduct = makeProduct('prod_delayed_a', 'Delayed A Mutation');
+
+    const sessionA: any = {
+      authenticated: true,
+      configured: true,
+      enabled: true,
+      customer: { id: customerAId, email: 'a@example.com', name: 'Customer A' },
+      hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+    };
+    const sessionB: any = {
+      authenticated: true,
+      configured: true,
+      enabled: true,
+      customer: { id: customerBId, email: 'b@example.com', name: 'Customer B' },
+      hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+    };
+    const sessionGuest: any = {
+      authenticated: false,
+      configured: true,
+      enabled: false,
+      hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+    };
+
+    // NOTE: Mocked-fetchSession & simulated EventTarget DOM Node tests exercising production
+    // SessionVerificationCoordinator, TabReturnTracker, bindBrowserSessionSync, WishlistCoordinator,
+    // resolveNavbarAccountDisplay, CustomerDashboardAuthenticatedView, and WishlistDrawer.
+    // Live browser Preview execution was not run in Node.
+
+    // 17.1 Pending A -> B and A -> Guest checks:
+    // A's items MUST immediately hide, mutations MUST block while pending, delayed A actions & responses MUST NOT persist
+    {
+      const storage = createMemoryStorage();
+      saveWishlistForScope(customerAId, customerAProducts, storage);
+      saveWishlistForScope(customerBId, customerBProducts, storage);
+      saveWishlistForScope(null, guestProducts, storage);
+
+      const notifications: string[] = [];
+      const wishlistCoordinator = createWishlistCoordinator({
+        storage,
+        onNotify: (msg) => notifications.push(msg),
+      });
+      const pending: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const coordinator = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+        wishlistCoordinator,
+      });
+
+      // StrictMode double mount coalescing
+      const pMount1 = coordinator.verify('mount');
+      const pMount2 = coordinator.verify('mount');
+      assert.equal(pending.length, 1, 'Repeated mount calls while pending coalesce into 1 request');
+      assert.equal(coordinator.getState().isVerifying, true);
+      assert.equal(coordinator.getConfirmedScope(), undefined);
+      assert.equal(wishlistCoordinator.getState().items.length, 0, 'Hidden while pending');
+
+      pending[0].resolve(sessionA);
+      await Promise.all([pMount1, pMount2]);
+      assert.equal(coordinator.getState().isVerifying, false);
+      assert.equal(coordinator.getState().sessionStatus, 'authenticated');
+      assert.equal(wishlistCoordinator.getState().items.length, 4);
+      const customerAGen = wishlistCoordinator.getState().scopeGeneration;
+
+      // Schedule a delayed toggle captured for Customer A before tab-return verification starts
+      const delayedATogglePromise = wishlistCoordinator.toggle(delayedToggleProduct, {
+        intendedScope: customerAId,
+        intendedGeneration: customerAGen,
+        delayMs: 30,
+      });
+
+      // Now genuine tab-return check begins while A was active -> MUST immediately hide A's items & drop A's active scope
+      const pReturnAtoB = coordinator.verify('tab-return');
+      assert.equal(pending.length, 2);
+      assert.equal(coordinator.getState().isVerifying, true);
+      assert.equal(coordinator.getState().sessionStatus, 'unresolved', 'Must NOT preserve authenticated state while pending');
+      assert.equal(coordinator.getState().customerSession, null, 'Must clear old customerSession while pending');
+      assert.equal(coordinator.getConfirmedScope(), undefined);
+      assert.equal(wishlistCoordinator.getState().customerId, undefined, 'Must NOT preserve A wishlist scope while pending');
+      assert.equal(wishlistCoordinator.getState().items.length, 0, 'A items must be hidden immediately while pending');
+      assert.equal(
+        resolveNavbarAccountDisplay({
+          isCustomAccountsEnabled: true,
+          sessionStatus: coordinator.getState().sessionStatus,
+          customerSession: coordinator.getState().customerSession,
+        }).label,
+        'Account'
+      );
+
+      // Direct mutation attempt while pending must be rejected without touching storage
+      const blockedWhilePending = await wishlistCoordinator.toggle(delayedToggleProduct);
+      assert.equal(blockedWhilePending.accepted, false);
+      assert.equal(blockedWhilePending.reason, 'unresolved');
+
+      // Wait for Customer A's delayed toggle timer to fire while check is still pending
+      const delayedAResult = await delayedATogglePromise;
+      assert.equal(delayedAResult.accepted, false);
+      assert.equal(delayedAResult.reason, 'unresolved');
+
+      // Also test overlapping superseded check: authoritative session-change supersedes tab-return check
+      const pSupersedeB = coordinator.verify('session-change');
+      assert.equal(pending.length, 3);
+      // Late response from old request resolving as Customer A MUST be dropped!
+      pending[1].resolve(sessionA);
+      await pReturnAtoB;
+      assert.equal(coordinator.getState().isVerifying, true);
+      assert.equal(coordinator.getState().sessionStatus, 'unresolved');
+      assert.equal(wishlistCoordinator.getState().items.length, 0);
+
+      // Settle as Customer B
+      pending[2].resolve(sessionB);
+      await pSupersedeB;
+      assert.equal(coordinator.getState().isVerifying, false);
+      assert.equal(coordinator.getState().sessionStatus, 'authenticated');
+      assert.equal(coordinator.getState().customerSession?.customer?.id, customerBId);
+      assert.deepEqual(wishlistCoordinator.getState().items.map((i) => i.id), ['prod_b1']);
+
+      // Confirm Customer A storage was NEVER mutated by delayed A action and Customer B never received A items
+      assert.deepEqual(
+        loadWishlistForScope(customerAId, storage).map((i) => i.id),
+        customerAProducts.map((i) => i.id)
+      );
+      assert.deepEqual(
+        loadWishlistForScope(customerBId, storage).map((i) => i.id),
+        ['prod_b1']
+      );
+
+      // Now verify pending A -> Guest transition: sign back into A, schedule delayed A toggle, trigger tab-return -> Guest
+      const pReloginA = coordinator.verify('session-change');
+      assert.equal(pending.length, 4);
+      pending[3].resolve(sessionA);
+      await pReloginA;
+      const genA2 = wishlistCoordinator.getState().scopeGeneration;
+
+      const delayedAtoGuestToggle = wishlistCoordinator.toggle(delayedToggleProduct, {
+        intendedScope: customerAId,
+        intendedGeneration: genA2,
+        delayMs: 30,
+      });
+
+      const pAtoGuest = coordinator.verify('tab-return');
+      assert.equal(pending.length, 5);
+      assert.equal(coordinator.getState().isVerifying, true);
+      assert.equal(wishlistCoordinator.getState().items.length, 0, 'A items hidden while pending A -> guest');
+
+      const delayedAtoGuestResult = await delayedAtoGuestToggle;
+      assert.equal(delayedAtoGuestResult.accepted, false);
+
+      pending[4].resolve(sessionGuest);
+      await pAtoGuest;
+      assert.equal(coordinator.getState().sessionStatus, 'guest');
+      assert.deepEqual(wishlistCoordinator.getState().items.map((i) => i.id), ['prod_g1']);
+      assert.deepEqual(
+        loadWishlistForScope(customerAId, storage).map((i) => i.id),
+        customerAProducts.map((i) => i.id),
+        'Customer A saved storage remains intact and unmodified after A -> guest'
+      );
+      assert.deepEqual(
+        loadWishlistForScope(null, storage).map((i) => i.id),
+        ['prod_g1'],
+        'Guest storage isolated from Customer A delayed toggle'
+      );
+    }
+
+    // 17.2 True tab/window return vs in-page focus movement + overlapping event deduplication + zero blind cooldown
+    {
+      const storage = createMemoryStorage();
+      saveWishlistForScope(customerAId, customerAProducts, storage);
+      const wishlistCoordinator = createWishlistCoordinator({ storage });
+      const pending: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const coordinator = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+        wishlistCoordinator,
+      });
+
+      class MockEventTarget extends EventTarget {}
+      const win = new MockEventTarget();
+      const docTarget = new MockEventTarget() as EventTarget & {
+        visibilityState: string;
+        hasFocus: () => boolean;
+      };
+      let docHasFocus = true;
+      docTarget.visibilityState = 'visible';
+      docTarget.hasFocus = () => docHasFocus;
+
+      const flushMicrotasks = async () => {
+        for (let i = 0; i < 6; i++) {
+          await Promise.resolve();
+        }
+      };
+
+      const unbind = bindBrowserSessionSync(coordinator, {
+        windowTarget: win as any,
+        documentTarget: docTarget as any,
+        tabInstanceId: 'tab-primary',
+      });
+
+      try {
+        // Initial mount request
+        assert.equal(pending.length, 1);
+        pending[0].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(coordinator.getState().sessionStatus, 'authenticated');
+        assert.equal(wishlistCoordinator.getState().items.length, 4);
+
+        // In-page focus movements (repeated focus without departure, or blur while document.hasFocus() remains true)
+        for (let i = 0; i < 5; i++) {
+          win.dispatchEvent(new Event('focus'));
+        }
+        docHasFocus = true;
+        win.dispatchEvent(new Event('blur'));
+        win.dispatchEvent(new Event('focus'));
+        assert.equal(pending.length, 1, 'In-page focus movement without leaving window/tab must issue ZERO verification fetches');
+        assert.equal(coordinator.getState().sessionStatus, 'authenticated');
+        assert.equal(wishlistCoordinator.getState().items.length, 4);
+
+        // Genuine tab departure + return emitting visibilitychange + focus + pageshow for the SAME return
+        docTarget.visibilityState = 'hidden';
+        docHasFocus = false;
+        docTarget.dispatchEvent(new Event('visibilitychange'));
+        win.dispatchEvent(new Event('blur'));
+
+        docTarget.visibilityState = 'visible';
+        docHasFocus = true;
+        docTarget.dispatchEvent(new Event('visibilitychange'));
+        win.dispatchEvent(new Event('focus'));
+        win.dispatchEvent(new Event('pageshow'));
+
+        assert.equal(
+          pending.length,
+          2,
+          'Overlapping visibilitychange + focus + pageshow for same tab return must deduplicate to ONE check'
+        );
+        assert.equal(coordinator.getState().isVerifying, true);
+        assert.equal(wishlistCoordinator.getState().items.length, 0, 'Tab return hides private saved items until confirmed');
+
+        pending[1].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(coordinator.getState().sessionStatus, 'authenticated');
+        assert.equal(wishlistCoordinator.getState().items.length, 4);
+
+        // Duplicate window.focus arriving right after visibilitychange already settled the SAME return must STILL be ignored
+        win.dispatchEvent(new Event('focus'));
+        assert.equal(pending.length, 2, 'Paired focus after settled visibilitychange of same return is deduplicated');
+
+        // Immediate second genuine window switch away (blur with hasFocus=false) & back 0ms later -> NO blind cooldown skip!
+        docHasFocus = false;
+        win.dispatchEvent(new Event('blur'));
+        docHasFocus = true;
+        win.dispatchEvent(new Event('focus'));
+        assert.equal(
+          pending.length,
+          3,
+          'Genuine window departure & return immediately triggers required verification without blind 5s cooldown skip'
+        );
+        assert.equal(coordinator.getState().isVerifying, true);
+        assert.equal(wishlistCoordinator.getState().items.length, 0);
+
+        pending[2].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(wishlistCoordinator.getState().items.length, 4);
+      } finally {
+        unbind();
+      }
+    }
+
+    // 17.3 Cross-tab deduplication, reason-aware logout lock, failure/recovery, interrupted-tab grace timeout, and storage fallback
+    {
+      const flushMicrotasks = async () => {
+        for (let i = 0; i < 6; i++) {
+          await Promise.resolve();
+        }
+      };
+
+      const storage1 = createMemoryStorage();
+      const storage2 = createMemoryStorage();
+      saveWishlistForScope(customerAId, customerAProducts, storage1);
+      saveWishlistForScope(customerAId, customerAProducts, storage2);
+
+      const wishlist1 = createWishlistCoordinator({ storage: storage1 });
+      const wishlist2 = createWishlistCoordinator({ storage: storage2 });
+      const pending1: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const pending2: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const coord1 = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pending1.push({ resolve, reject })),
+        wishlistCoordinator: wishlist1,
+      });
+      const coord2 = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pending2.push({ resolve, reject })),
+        wishlistCoordinator: wishlist2,
+      });
+
+      // Shared BroadcastChannel + shared storage event hub simulating real dual-transport delivery
+      const channelListeners = new Set<(ev: { data: unknown }) => void>();
+      const createSharedBroadcastChannel = () => {
+        const local = new Set<(ev: { data: unknown }) => void>();
+        return {
+          postMessage: (msg: unknown) => {
+            for (const listener of channelListeners) {
+              listener({ data: msg });
+            }
+          },
+          addEventListener: (_type: 'message', fn: (ev: { data: unknown }) => void) => {
+            local.add(fn);
+            channelListeners.add(fn);
+          },
+          removeEventListener: (_type: 'message', fn: (ev: { data: unknown }) => void) => {
+            local.delete(fn);
+            channelListeners.delete(fn);
+          },
+          close: () => {
+            for (const fn of local) channelListeners.delete(fn);
+            local.clear();
+          },
+        };
+      };
+
+      const win1 = new EventTarget();
+      const doc1 = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+      const win2 = new EventTarget();
+      const doc2 = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+
+      const writtenPayloads: string[] = [];
+      const makeCrossTabStorage = (senderWindow: EventTarget, targetWindows: EventTarget[]) => ({
+        setItem: (key: string, value: string) => {
+          writtenPayloads.push(value);
+          for (const target of targetWindows) {
+            if (target !== senderWindow) {
+              const ev = Object.assign(new Event('storage'), { key, newValue: value });
+              target.dispatchEvent(ev);
+            }
+          }
+        },
+      });
+
+      const unbind1 = bindBrowserSessionSync(coord1, {
+        windowTarget: win1 as any,
+        documentTarget: doc1 as any,
+        createBroadcastChannel: createSharedBroadcastChannel,
+        storage: makeCrossTabStorage(win1, [win1, win2]),
+        tabInstanceId: 'tab-1',
+      });
+      const unbind2 = bindBrowserSessionSync(coord2, {
+        windowTarget: win2 as any,
+        documentTarget: doc2 as any,
+        createBroadcastChannel: createSharedBroadcastChannel,
+        storage: makeCrossTabStorage(win2, [win1, win2]),
+        tabInstanceId: 'tab-2',
+      });
+
+      try {
+        pending1[0].resolve(sessionA);
+        pending2[0].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(coord2.getState().sessionStatus, 'authenticated');
+        assert.equal(coord2.getConfirmedScope(), customerAId);
+        assert.equal(wishlist2.getState().items.length, 4);
+
+        // 1. One logical event delivered over BOTH BroadcastChannel AND storage starts at most 1 check
+        win1.dispatchEvent(new Event('customer-session-changed'));
+        assert.equal(pending1.length, 2, 'Initiating tab runs its own session-change verify');
+        assert.equal(
+          pending2.length,
+          2,
+          'Sibling receives BroadcastChannel + storage deliveries for same eventId and issues at most 1 check'
+        );
+        const firstPayloadRaw = writtenPayloads[writtenPayloads.length - 1];
+        const firstPayload = parseCrossTabInvalidationMessage(firstPayloadRaw);
+        assert.ok(firstPayload, 'Storage payload parses as valid CrossTabInvalidationMessage');
+        assert.equal(firstPayload?.reason, 'session-change');
+        assert.equal(firstPayload?.sourceId, 'tab-1');
+        assert.equal(typeof (firstPayload as any).customerId, 'undefined');
+        assert.equal(typeof (firstPayload as any).authenticated, 'undefined');
+        assert.equal(typeof (firstPayload as any).token, 'undefined');
+
+        pending1[1].resolve(sessionA);
+        pending2[1].resolve(sessionA);
+        await flushMicrotasks();
+
+        // 2. A genuinely later event gets a fresh eventId and is NOT dropped
+        win1.dispatchEvent(new Event('customer-session-changed'));
+        const secondPayload = parseCrossTabInvalidationMessage(writtenPayloads[writtenPayloads.length - 1]);
+        assert.notEqual(secondPayload?.eventId, firstPayload?.eventId);
+        assert.equal(pending2.length, 3, 'Genuinely later invalidation runs cleanly on Tab 2');
+        pending1[2].resolve(sessionA);
+        pending2[2].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(coord2.getState().sessionStatus, 'authenticated');
+        assert.equal(wishlist2.getState().items.length, 4);
+
+        // 3. Cross-tab logout-start race protection:
+        //    Start a pending check on Tab 2 BEFORE Tab 1 begins logout; resolving that pre-deletion
+        //    authenticated response must NOT restore private saved items or mutations.
+        const pPreLogout2 = coord2.verify('tab-return');
+        assert.equal(pending2.length, 4);
+        win1.dispatchEvent(new Event('customer-logout-started'));
+
+        assert.equal(coord1.getState().isLogoutInProgress, true);
+        assert.equal(coord2.getState().isLogoutInProgress, true, 'Tab 2 enters remote logout lock');
+        assert.equal(coord2.getLogoutLockMode(), 'remote');
+        assert.equal(coord2.getState().isVerifying, false);
+        assert.equal(coord2.getState().sessionStatus, 'unresolved');
+        assert.equal(coord2.getConfirmedScope(), undefined);
+        assert.equal(wishlist2.getState().items.length, 0, 'Private items hidden immediately on sibling logout-start');
+        const blockedMutation = await wishlist2.toggle(customerAProducts[0]);
+        assert.equal(blockedMutation.accepted, false);
+        assert.equal(blockedMutation.reason, 'unresolved');
+
+        // Triggers during remote logout do not re-verify the old server session or bounce back to Tab 1
+        await coord2.verify('tab-return');
+        await coord2.verify('focus');
+        await coord2.verify('retry');
+        assert.equal(pending2.length, 4, 'No verification issued while sibling logout-start lock is active');
+        assert.equal(pending1.length, 3, 'No ping-pong notifications sent to Tab 1');
+
+        // Pre-deletion response resolves with old sessionA -> MUST be rejected
+        pending2[3].resolve(sessionA);
+        await pPreLogout2;
+        await flushMicrotasks();
+        assert.equal(coord2.getState().sessionStatus, 'unresolved', 'Pre-deletion authenticated response rejected during sibling logout');
+        assert.equal(coord2.getConfirmedScope(), undefined);
+        assert.equal(wishlist2.getState().items.length, 0);
+
+        const logoutStartPayload = parseCrossTabInvalidationMessage(writtenPayloads[writtenPayloads.length - 1]);
+        assert.equal(logoutStartPayload?.reason, 'logout-start');
+
+        // 4. Confirmed logout-complete unlocks Tab 2 and verifies fresh guest state
+        win1.dispatchEvent(new Event('customer-logout-completed'));
+        assert.equal(coord2.getState().isLogoutInProgress, false);
+        assert.equal(coord2.getLogoutLockMode(), 'none');
+        assert.equal(pending2.length, 5, 'logout-complete triggers fresh server verification');
+        pending2[4].resolve(sessionGuest);
+        await flushMicrotasks();
+        assert.equal(coord2.getState().sessionStatus, 'guest');
+        assert.equal(coord2.getConfirmedScope(), null);
+
+        // 5a. Failed logout in Tab 1 -> Tab 2 releases silent lock safely without auto-restoring or looping
+        coord1.reset();
+        win1.dispatchEvent(new Event('customer-session-changed'));
+        assert.equal(pending1.length, 4);
+        assert.equal(pending2.length, 6);
+        pending1[3].resolve(sessionA);
+        pending2[5].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(coord2.getState().sessionStatus, 'authenticated');
+
+        win1.dispatchEvent(new Event('customer-logout-started'));
+        assert.equal(coord2.getLogoutLockMode(), 'remote');
+        assert.equal(pending2.length, 6);
+
+        win1.dispatchEvent(new Event('customer-logout-failed'));
+        assert.equal(coord2.getState().isLogoutInProgress, false, 'logout-failed clears remote lock so Retry works');
+        assert.equal(coord2.getLogoutLockMode(), 'none');
+        assert.equal(coord2.getState().sessionStatus, 'unresolved');
+        assert.equal(wishlist2.getState().items.length, 0, 'Private items stay hidden after sibling logout failure');
+        assert.match(coord2.getState().sessionError || '', /Sign out failed in another tab/);
+        assert.equal(pending2.length, 6, 'logout-failed must NOT auto-verify or auto-restore old session');
+
+        await coord2.verify('focus');
+        await coord2.verify('tab-return');
+        assert.equal(pending2.length, 6, 'No automatic retry loop after sibling logout failure');
+
+        const pExplicitRetry = coord2.verify('retry');
+        assert.equal(pending2.length, 7);
+        pending2[6].resolve(sessionA);
+        await pExplicitRetry;
+        assert.equal(coord2.getState().sessionStatus, 'authenticated');
+        assert.equal(wishlist2.getState().items.length, 4);
+
+        // 5b. Deliberate recovery in Tab 1 -> Tab 2 clears remote lock and re-verifies once
+        win1.dispatchEvent(new Event('customer-logout-started'));
+        assert.equal(coord2.getLogoutLockMode(), 'remote');
+        win1.dispatchEvent(new Event('customer-logout-recovered'));
+        assert.equal(coord2.getState().isLogoutInProgress, false);
+        assert.equal(coord2.getLogoutLockMode(), 'none');
+        assert.equal(pending2.length, 8);
+        pending1[4].resolve(sessionA);
+        pending2[7].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(coord2.getState().sessionStatus, 'authenticated');
+      } finally {
+        unbind1();
+        unbind2();
+      }
+
+      // 6. Interrupted initiating tab -> bounded grace timeout releases lock cleanly with Retry path
+      assert.equal(DEFAULT_REMOTE_LOGOUT_GRACE_MS, 5000);
+      const storageT = createMemoryStorage();
+      saveWishlistForScope(customerAId, customerAProducts, storageT);
+      const wishlistT = createWishlistCoordinator({ storage: storageT });
+      const pendingT1: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const pendingT2: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const coordT1 = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pendingT1.push({ resolve, reject })),
+        wishlistCoordinator: createWishlistCoordinator({ storage: createMemoryStorage() }),
+      });
+      const coordT2 = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pendingT2.push({ resolve, reject })),
+        wishlistCoordinator: wishlistT,
+        remoteLogoutGraceMs: 25,
+      });
+
+      const winT1 = new EventTarget();
+      const docT1 = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+      const winT2 = new EventTarget();
+      const docT2 = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+
+      const unbindT1 = bindBrowserSessionSync(coordT1, {
+        windowTarget: winT1 as any,
+        documentTarget: docT1 as any,
+        createBroadcastChannel: createSharedBroadcastChannel,
+        tabInstanceId: 'tab-t1',
+      });
+      const unbindT2 = bindBrowserSessionSync(coordT2, {
+        windowTarget: winT2 as any,
+        documentTarget: docT2 as any,
+        createBroadcastChannel: createSharedBroadcastChannel,
+        tabInstanceId: 'tab-t2',
+        remoteLogoutGraceMs: 25,
+      });
+
+      try {
+        pendingT1[0].resolve(sessionA);
+        pendingT2[0].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(coordT2.getState().sessionStatus, 'authenticated');
+
+        winT1.dispatchEvent(new Event('customer-logout-started'));
+        // Tab 1 dies/navigates away without emitting logout-complete or logout-failed
+        assert.equal(coordT2.getState().isLogoutInProgress, true);
+        assert.equal(coordT2.getLogoutLockMode(), 'remote');
+
+        await new Promise((resolve) => setTimeout(resolve, 45));
+        assert.equal(
+          coordT2.getState().isLogoutInProgress,
+          false,
+          'Grace timeout prevents permanent unexplained lock when initiating tab disappears'
+        );
+        assert.equal(coordT2.getLogoutLockMode(), 'none');
+        assert.equal(coordT2.getState().sessionStatus, 'unresolved');
+        assert.equal(wishlistT.getState().items.length, 0);
+        assert.match(coordT2.getState().sessionError || '', /did not confirm completion/);
+        assert.equal(pendingT2.length, 1, 'Grace timeout does not start background polling loop');
+
+        const pRetryAfterTimeout = coordT2.verify('retry');
+        assert.equal(pendingT2.length, 2);
+        pendingT2[1].resolve(sessionGuest);
+        await pRetryAfterTimeout;
+        assert.equal(coordT2.getState().sessionStatus, 'guest');
+      } finally {
+        unbindT1();
+        unbindT2();
+      }
+
+      // 7. Storage-only fallback (when BroadcastChannel is unavailable) preserves full reason metadata & lock behavior
+      const storageS = createMemoryStorage();
+      saveWishlistForScope(customerAId, customerAProducts, storageS);
+      const wishlistS2 = createWishlistCoordinator({ storage: storageS });
+      const pendingS1: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const pendingS2: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const coordS1 = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pendingS1.push({ resolve, reject })),
+        wishlistCoordinator: createWishlistCoordinator({ storage: createMemoryStorage() }),
+      });
+      const coordS2 = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pendingS2.push({ resolve, reject })),
+        wishlistCoordinator: wishlistS2,
+      });
+
+      const winS1 = new EventTarget();
+      const docS1 = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+      const winS2 = new EventTarget();
+      const docS2 = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+      const throwBroadcastChannel = () => {
+        throw new Error('BroadcastChannel unavailable');
+      };
+
+      const unbindS1 = bindBrowserSessionSync(coordS1, {
+        windowTarget: winS1 as any,
+        documentTarget: docS1 as any,
+        createBroadcastChannel: throwBroadcastChannel,
+        storage: makeCrossTabStorage(winS1, [winS1, winS2]),
+        tabInstanceId: 'tab-s1',
+      });
+      const unbindS2 = bindBrowserSessionSync(coordS2, {
+        windowTarget: winS2 as any,
+        documentTarget: docS2 as any,
+        createBroadcastChannel: throwBroadcastChannel,
+        storage: makeCrossTabStorage(winS2, [winS1, winS2]),
+        tabInstanceId: 'tab-s2',
+      });
+
+      try {
+        pendingS1[0].resolve(sessionA);
+        pendingS2[0].resolve(sessionA);
+        await flushMicrotasks();
+        assert.equal(coordS2.getState().sessionStatus, 'authenticated');
+
+        const pPendingStorage = coordS2.verify('tab-return');
+        assert.equal(pendingS2.length, 2);
+
+        winS1.dispatchEvent(new Event('customer-logout-started'));
+        assert.equal(coordS2.getState().isLogoutInProgress, true, 'Storage fallback enforces remote logout lock');
+        assert.equal(coordS2.getLogoutLockMode(), 'remote');
+        assert.equal(wishlistS2.getState().items.length, 0);
+
+        pendingS2[1].resolve(sessionA);
+        await pPendingStorage;
+        assert.equal(coordS2.getState().sessionStatus, 'unresolved', 'Storage fallback rejects pre-deletion response');
+
+        winS1.dispatchEvent(new Event('customer-logout-completed'));
+        assert.equal(coordS2.getState().isLogoutInProgress, false);
+        assert.equal(pendingS2.length, 3);
+        pendingS2[2].resolve(sessionGuest);
+        await flushMicrotasks();
+        assert.equal(coordS2.getState().sessionStatus, 'guest');
+      } finally {
+        unbindS1();
+        unbindS2();
+      }
+
+      // 8. Unrelated session-change arriving during active remote logout lock must NEVER release lock or re-confirm old session
+      {
+        const storageSC = createMemoryStorage();
+        saveWishlistForScope(customerAId, customerAProducts, storageSC);
+        const wishlistSC2 = createWishlistCoordinator({ storage: storageSC });
+        const pendingSC1: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+        const pendingSC2: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+        const coordSC1 = createSessionVerificationCoordinator({
+          fetchSession: () => new Promise((resolve, reject) => pendingSC1.push({ resolve, reject })),
+          wishlistCoordinator: createWishlistCoordinator({ storage: createMemoryStorage() }),
+        });
+        const coordSC2 = createSessionVerificationCoordinator({
+          fetchSession: () => new Promise((resolve, reject) => pendingSC2.push({ resolve, reject })),
+          wishlistCoordinator: wishlistSC2,
+        });
+
+        const winSC1 = new EventTarget();
+        const docSC1 = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+        const winSC2 = new EventTarget();
+        const docSC2 = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+        const sharedStorageSC = makeCrossTabStorage(winSC1, [winSC1, winSC2]);
+
+        const unbindSC1 = bindBrowserSessionSync(coordSC1, {
+          windowTarget: winSC1 as any,
+          documentTarget: docSC1 as any,
+          createBroadcastChannel: createSharedBroadcastChannel,
+          storage: sharedStorageSC,
+          tabInstanceId: 'tab-sc1',
+        });
+        const unbindSC2 = bindBrowserSessionSync(coordSC2, {
+          windowTarget: winSC2 as any,
+          documentTarget: docSC2 as any,
+          createBroadcastChannel: createSharedBroadcastChannel,
+          storage: makeCrossTabStorage(winSC2, [winSC1, winSC2]),
+          tabInstanceId: 'tab-sc2',
+        });
+
+        try {
+          pendingSC1[0].resolve(sessionA);
+          pendingSC2[0].resolve(sessionA);
+          await flushMicrotasks();
+          assert.equal(coordSC2.getState().sessionStatus, 'authenticated');
+          assert.equal(wishlistSC2.getState().items.length, 4);
+
+          // Pending check started before logout
+          const pPreLogoutSC2 = coordSC2.verify('tab-return');
+          assert.equal(pendingSC2.length, 2);
+
+          const attemptSC = createLogoutAttemptId();
+          winSC1.dispatchEvent(
+            new CustomEvent('customer-logout-started', { detail: { logoutAttemptId: attemptSC } })
+          );
+          assert.equal(coordSC2.getState().isLogoutInProgress, true);
+          assert.equal(coordSC2.getLogoutLockMode(), 'remote');
+          assert.deepEqual(coordSC2.getPendingRemoteLogoutAttemptIds(), [attemptSC]);
+
+          // Unrelated session-change from another tab AND local customer-session-changed arrive while logout is pending
+          broadcastCrossTabSessionInvalidation(
+            'session-change',
+            'tab-sc3',
+            {
+              createBroadcastChannel: createSharedBroadcastChannel,
+              storage: makeCrossTabStorage(new EventTarget(), [winSC1, winSC2]),
+            }
+          );
+          winSC2.dispatchEvent(new Event('customer-session-changed'));
+          await coordSC2.handleRemoteSessionChange();
+
+          assert.equal(
+            coordSC2.getState().isLogoutInProgress,
+            true,
+            'Unrelated session-change must NOT clear active remote logout lock'
+          );
+          assert.equal(coordSC2.getLogoutLockMode(), 'remote');
+          assert.deepEqual(coordSC2.getPendingRemoteLogoutAttemptIds(), [attemptSC]);
+          assert.equal(coordSC2.getState().sessionStatus, 'unresolved');
+          assert.equal(wishlistSC2.getState().items.length, 0);
+          assert.equal(pendingSC2.length, 2, 'No verification request issued during active remote logout lock');
+          const mutBlocked = await wishlistSC2.toggle(customerAProducts[0]);
+          assert.equal(mutBlocked.accepted, false);
+
+          // Pre-deletion authenticated response still rejected
+          pendingSC2[1].resolve(sessionA);
+          await pPreLogoutSC2;
+          assert.equal(coordSC2.getState().sessionStatus, 'unresolved');
+          assert.equal(wishlistSC2.getState().items.length, 0);
+
+          // Matching logout-complete unlocks cleanly
+          winSC1.dispatchEvent(
+            new CustomEvent('customer-logout-completed', { detail: { logoutAttemptId: attemptSC } })
+          );
+          assert.equal(coordSC2.getState().isLogoutInProgress, false);
+          assert.equal(pendingSC2.length, 3);
+          pendingSC2[2].resolve(sessionGuest);
+          await flushMicrotasks();
+          assert.equal(coordSC2.getState().sessionStatus, 'guest');
+        } finally {
+          unbindSC1();
+          unbindSC2();
+        }
+      }
+
+      // 9. Delayed completion/recovery from an older attempt & missing attemptId fail closed
+      {
+        assert.equal(
+          parseCrossTabInvalidationMessage({
+            type: 'session-invalidated',
+            reason: 'logout-complete',
+            sourceId: 'tab-x',
+            eventId: 'evt-missing-attempt',
+            emittedAt: Date.now(),
+          }),
+          null,
+          'Logout cross-tab signals without logoutAttemptId are rejected fail-closed'
+        );
+
+        const storageOld = createMemoryStorage();
+        saveWishlistForScope(customerAId, customerAProducts, storageOld);
+        const wishlistOld = createWishlistCoordinator({ storage: storageOld });
+        const pendingOld: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+        const coordOld = createSessionVerificationCoordinator({
+          fetchSession: () => new Promise((resolve, reject) => pendingOld.push({ resolve, reject })),
+          wishlistCoordinator: wishlistOld,
+        });
+
+        const winOld = new EventTarget();
+        const docOld = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+        const unbindOld = bindBrowserSessionSync(coordOld, {
+          windowTarget: winOld as any,
+          documentTarget: docOld as any,
+          createBroadcastChannel: createSharedBroadcastChannel,
+          storage: makeCrossTabStorage(winOld, [winOld]),
+          tabInstanceId: 'tab-old-recv',
+        });
+
+        try {
+          pendingOld[0].resolve(sessionA);
+          await flushMicrotasks();
+          assert.equal(coordOld.getState().sessionStatus, 'authenticated');
+
+          const otherTabEnv = {
+            createBroadcastChannel: createSharedBroadcastChannel,
+            storage: makeCrossTabStorage(new EventTarget(), [winOld]),
+          };
+
+          // Older attempt starts and completes
+          const oldAttempt = 'logout_old_attempt_1';
+          broadcastCrossTabSessionInvalidation('logout-start', 'tab-1', otherTabEnv, undefined, oldAttempt);
+          broadcastCrossTabSessionInvalidation('logout-complete', 'tab-1', otherTabEnv, undefined, oldAttempt);
+          assert.equal(pendingOld.length, 2);
+          pendingOld[1].resolve(sessionA);
+          await flushMicrotasks();
+          assert.equal(coordOld.getState().sessionStatus, 'authenticated');
+
+          // Newer attempt starts
+          const newAttempt = 'logout_new_attempt_2';
+          broadcastCrossTabSessionInvalidation('logout-start', 'tab-1', otherTabEnv, undefined, newAttempt);
+          assert.equal(coordOld.getState().isLogoutInProgress, true);
+          assert.deepEqual(coordOld.getPendingRemoteLogoutAttemptIds(), [newAttempt]);
+
+          // Delayed completion AND delayed recovery from oldAttempt arrive -> MUST NOT release newAttempt!
+          broadcastCrossTabSessionInvalidation('logout-complete', 'tab-1', otherTabEnv, undefined, oldAttempt);
+          broadcastCrossTabSessionInvalidation('logout-recovery', 'tab-1', otherTabEnv, undefined, oldAttempt);
+          broadcastCrossTabSessionInvalidation('logout-failed', 'tab-1', otherTabEnv, undefined, oldAttempt);
+
+          assert.equal(coordOld.getState().isLogoutInProgress, true, 'Stale attempt events cannot release newer lock');
+          assert.deepEqual(coordOld.getPendingRemoteLogoutAttemptIds(), [newAttempt]);
+          assert.equal(wishlistOld.getState().items.length, 0);
+          assert.equal(pendingOld.length, 2, 'Stale attempt events must not start verification');
+
+          // Matching completion for newAttempt unlocks cleanly
+          broadcastCrossTabSessionInvalidation('logout-complete', 'tab-1', otherTabEnv, undefined, newAttempt);
+          assert.equal(coordOld.getState().isLogoutInProgress, false);
+          assert.deepEqual(coordOld.getPendingRemoteLogoutAttemptIds(), []);
+          assert.equal(pendingOld.length, 3);
+          pendingOld[2].resolve(sessionGuest);
+          await flushMicrotasks();
+          assert.equal(coordOld.getState().sessionStatus, 'guest');
+
+          // Delayed recovery from oldAttempt when no lock is active is also ignored
+          broadcastCrossTabSessionInvalidation('logout-recovery', 'tab-1', otherTabEnv, undefined, oldAttempt);
+          assert.equal(pendingOld.length, 3, 'Retired oldAttempt recovery is ignored even when idle');
+        } finally {
+          unbindOld();
+        }
+      }
+
+      // 10. Overlapping logout attempts from different tabs (remote-remote AND local-remote)
+      {
+        const storageMulti = createMemoryStorage();
+        saveWishlistForScope(customerAId, customerAProducts, storageMulti);
+        const wishlistMulti2 = createWishlistCoordinator({ storage: storageMulti });
+        const pendingMulti1: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+        const pendingMulti2: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+        const pendingMulti3: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+        const coordMulti1 = createSessionVerificationCoordinator({
+          fetchSession: () => new Promise((resolve, reject) => pendingMulti1.push({ resolve, reject })),
+          wishlistCoordinator: createWishlistCoordinator({ storage: createMemoryStorage() }),
+        });
+        const coordMulti2 = createSessionVerificationCoordinator({
+          fetchSession: () => new Promise((resolve, reject) => pendingMulti2.push({ resolve, reject })),
+          wishlistCoordinator: wishlistMulti2,
+        });
+        const coordMulti3 = createSessionVerificationCoordinator({
+          fetchSession: () => new Promise((resolve, reject) => pendingMulti3.push({ resolve, reject })),
+          wishlistCoordinator: createWishlistCoordinator({ storage: createMemoryStorage() }),
+        });
+
+        const winM1 = new EventTarget();
+        const winM2 = new EventTarget();
+        const winM3 = new EventTarget();
+        const docM = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+
+        const unbindM1 = bindBrowserSessionSync(coordMulti1, {
+          windowTarget: winM1 as any,
+          documentTarget: docM as any,
+          createBroadcastChannel: createSharedBroadcastChannel,
+          storage: makeCrossTabStorage(winM1, [winM1, winM2, winM3]),
+          tabInstanceId: 'tab-m1',
+        });
+        const unbindM2 = bindBrowserSessionSync(coordMulti2, {
+          windowTarget: winM2 as any,
+          documentTarget: docM as any,
+          createBroadcastChannel: createSharedBroadcastChannel,
+          storage: makeCrossTabStorage(winM2, [winM1, winM2, winM3]),
+          tabInstanceId: 'tab-m2',
+        });
+        const unbindM3 = bindBrowserSessionSync(coordMulti3, {
+          windowTarget: winM3 as any,
+          documentTarget: docM as any,
+          createBroadcastChannel: createSharedBroadcastChannel,
+          storage: makeCrossTabStorage(winM3, [winM1, winM2, winM3]),
+          tabInstanceId: 'tab-m3',
+        });
+
+        try {
+          pendingMulti1[0].resolve(sessionA);
+          pendingMulti2[0].resolve(sessionA);
+          pendingMulti3[0].resolve(sessionA);
+          await flushMicrotasks();
+          assert.equal(wishlistMulti2.getState().items.length, 4);
+
+          const attemptTab1 = 'logout_tab1_overlap';
+          const attemptTab3 = 'logout_tab3_overlap';
+
+          // Both Tab 1 and Tab 3 initiate logout; Tab 2 observes both attempts
+          winM1.dispatchEvent(
+            new CustomEvent('customer-logout-started', { detail: { logoutAttemptId: attemptTab1 } })
+          );
+          winM3.dispatchEvent(
+            new CustomEvent('customer-logout-started', { detail: { logoutAttemptId: attemptTab3 } })
+          );
+
+          assert.equal(coordMulti2.getState().isLogoutInProgress, true);
+          assert.deepEqual(coordMulti2.getPendingRemoteLogoutAttemptIds(), [attemptTab1, attemptTab3]);
+          assert.equal(wishlistMulti2.getState().items.length, 0);
+          assert.equal(pendingMulti2.length, 1);
+
+          // Tab 1 completes first -> Tab 2 MUST stay locked because attemptTab3 is still pending!
+          winM1.dispatchEvent(
+            new CustomEvent('customer-logout-completed', { detail: { logoutAttemptId: attemptTab1 } })
+          );
+          assert.equal(coordMulti2.getState().isLogoutInProgress, true, 'Completing Tab 1 attempt must NOT release Tab 3 pending lock');
+          assert.deepEqual(coordMulti2.getPendingRemoteLogoutAttemptIds(), [attemptTab3]);
+          assert.equal(wishlistMulti2.getState().items.length, 0);
+          assert.equal(pendingMulti2.length, 1, 'Tab 2 must not verify while Tab 3 logout is still pending');
+
+          // Tab 2 ALSO initiates its own local attempt while attemptTab3 is still pending
+          const attemptTab2Local = 'logout_tab2_local_overlap';
+          winM2.dispatchEvent(
+            new CustomEvent('customer-logout-started', { detail: { logoutAttemptId: attemptTab2Local } })
+          );
+          assert.equal(coordMulti2.getLogoutLockMode(), 'local');
+
+          // Tab 3 completes -> Tab 2 STILL holds its own local lock!
+          winM3.dispatchEvent(
+            new CustomEvent('customer-logout-completed', { detail: { logoutAttemptId: attemptTab3 } })
+          );
+          assert.deepEqual(coordMulti2.getPendingRemoteLogoutAttemptIds(), []);
+          assert.equal(coordMulti2.getState().isLogoutInProgress, true);
+          assert.equal(coordMulti2.getLogoutLockMode(), 'local');
+          assert.equal(pendingMulti2.length, 1);
+
+          // Tab 2 recovers local attempt -> now zero attempts remain, Tab 2 unlocks & verifies cleanly once
+          winM2.dispatchEvent(
+            new CustomEvent('customer-logout-recovered', { detail: { logoutAttemptId: attemptTab2Local } })
+          );
+          assert.equal(coordMulti2.getState().isLogoutInProgress, false);
+          assert.equal(pendingMulti2.length, 2);
+          pendingMulti2[1].resolve(sessionGuest);
+          await flushMicrotasks();
+          assert.equal(coordMulti2.getState().sessionStatus, 'guest');
+        } finally {
+          unbindM1();
+          unbindM2();
+          unbindM3();
+        }
+      }
+
+      // 11. Actual CustomerDashboard production logout & recovery paths propagate logoutAttemptId end-to-end
+      {
+        const storageDash = createMemoryStorage();
+        saveWishlistForScope(customerAId, customerAProducts, storageDash);
+        const wishlistSib = createWishlistCoordinator({ storage: storageDash });
+        const pendingDash: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+        const pendingSib: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+        const coordDash = createSessionVerificationCoordinator({
+          fetchSession: () => new Promise((resolve, reject) => pendingDash.push({ resolve, reject })),
+          wishlistCoordinator: createWishlistCoordinator({ storage: createMemoryStorage() }),
+        });
+        const coordSib = createSessionVerificationCoordinator({
+          fetchSession: () => new Promise((resolve, reject) => pendingSib.push({ resolve, reject })),
+          wishlistCoordinator: wishlistSib,
+        });
+
+        const winDash = new EventTarget();
+        const winSib = new EventTarget();
+        const docDash = Object.assign(new EventTarget(), { visibilityState: 'visible', hasFocus: () => true });
+        const dashPayloads: CrossTabInvalidationMessage[] = [];
+        const unbindDash = bindBrowserSessionSync(coordDash, {
+          windowTarget: winDash as any,
+          documentTarget: docDash as any,
+          createBroadcastChannel: createSharedBroadcastChannel,
+          storage: {
+            setItem: (key: string, value: string) => {
+              const parsed = parseCrossTabInvalidationMessage(value);
+              if (parsed) dashPayloads.push(parsed);
+              winSib.dispatchEvent(Object.assign(new Event('storage'), { key, newValue: value }));
+            },
+          },
+          tabInstanceId: 'tab-dash',
+        });
+        const unbindSib = bindBrowserSessionSync(coordSib, {
+          windowTarget: winSib as any,
+          documentTarget: docDash as any,
+          createBroadcastChannel: createSharedBroadcastChannel,
+          storage: makeCrossTabStorage(winSib, [winDash, winSib]),
+          tabInstanceId: 'tab-sib',
+        });
+
+        try {
+          pendingDash[0].resolve(sessionA);
+          pendingSib[0].resolve(sessionA);
+          await flushMicrotasks();
+          assert.equal(coordSib.getState().sessionStatus, 'authenticated');
+          assert.equal(wishlistSib.getState().items.length, 4);
+
+          const activeLogoutAttemptRef: { current: string | null } = { current: null };
+          let dashLoggingOut = false;
+          let dashLogoutError: string | null = null;
+          let redirectTarget: string | undefined;
+          let logoutResolvers: Array<(v: { success: boolean; logoutUrl?: string; error?: string }) => void> = [];
+
+          // Step A: Initiate real executeDashboardLogout -> fails on server
+          const pFirstLogout = executeDashboardLogout({
+            activeLogoutAttemptRef,
+            isLoggingOut: dashLoggingOut,
+            setIsLoggingOut: (v) => {
+              dashLoggingOut = v;
+            },
+            setLogoutError: (e) => {
+              dashLogoutError = e;
+            },
+            performLogout: () => new Promise((resolve) => logoutResolvers.push(resolve)),
+            eventTarget: winDash,
+            onRedirect: (url) => {
+              redirectTarget = url || '__reload__';
+            },
+          });
+
+          const firstAttemptId = activeLogoutAttemptRef.current;
+          assert.ok(firstAttemptId && firstAttemptId.startsWith('logout_'), 'Dashboard generates non-sensitive logoutAttemptId');
+          assert.equal(dashLoggingOut, true);
+          assert.equal(coordSib.getState().isLogoutInProgress, true);
+          assert.deepEqual(coordSib.getPendingRemoteLogoutAttemptIds(), [firstAttemptId]);
+          assert.equal(wishlistSib.getState().items.length, 0);
+
+          const startSignal = dashPayloads[dashPayloads.length - 1];
+          assert.equal(startSignal.reason, 'logout-start');
+          assert.equal(startSignal.logoutAttemptId, firstAttemptId);
+          assert.equal(typeof (startSignal as any).customerId, 'undefined');
+
+          logoutResolvers[0]({ success: false, error: 'HTTP 502 from logout endpoint' });
+          await pFirstLogout;
+
+          assert.equal(dashLoggingOut, false);
+          assert.equal(dashLogoutError, 'HTTP 502 from logout endpoint');
+          assert.equal(activeLogoutAttemptRef.current, firstAttemptId, 'Attempt ID retained across failure for Resume Session correlation');
+          const failSignal = dashPayloads[dashPayloads.length - 1];
+          assert.equal(failSignal.reason, 'logout-failed');
+          assert.equal(failSignal.logoutAttemptId, firstAttemptId);
+          assert.equal(coordSib.getState().isLogoutInProgress, false);
+          assert.equal(coordSib.getState().sessionStatus, 'unresolved');
+          assert.match(coordSib.getState().sessionError || '', /Sign out failed in another tab/);
+
+          // Step B: User clicks Resume Session -> real executeDashboardResumeSession propagates matching attemptId
+          let dashboardLoadCalls = 0;
+          const mockDashController = createCustomerDashboardController({
+            fetchSession: async () => sessionA,
+            fetchDashboardData: async () => {
+              dashboardLoadCalls += 1;
+              return { profile: null, orders: [] };
+            },
+            fetchOrdersList: async () => ({
+              orders: [],
+              pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+            }),
+            fetchProfileData: async () => ({ profile: null }),
+          });
+
+          const recoveredId = executeDashboardResumeSession({
+            activeLogoutAttemptRef,
+            setLogoutError: (e) => {
+              dashLogoutError = e;
+            },
+            setIsLoggingOut: (v) => {
+              dashLoggingOut = v;
+            },
+            controller: mockDashController,
+            eventTarget: winDash,
+          });
+          assert.equal(recoveredId, firstAttemptId);
+          assert.equal(activeLogoutAttemptRef.current, null);
+          assert.equal(dashLogoutError, null);
+          assert.equal(dashboardLoadCalls, 1);
+
+          const recSignal = dashPayloads[dashPayloads.length - 1];
+          assert.equal(recSignal.reason, 'logout-recovery');
+          assert.equal(recSignal.logoutAttemptId, firstAttemptId);
+          assert.equal(pendingDash.length, 2);
+          assert.equal(pendingSib.length, 2);
+          pendingDash[1].resolve(sessionA);
+          pendingSib[1].resolve(sessionA);
+          await flushMicrotasks();
+          assert.equal(coordSib.getState().sessionStatus, 'authenticated');
+          assert.equal(wishlistSib.getState().items.length, 4);
+
+          // Step C: Retry Sign Out -> creates brand-new attemptId, rejects stale firstAttemptId signals, succeeds & redirects
+          const pRetryLogout = executeDashboardLogout({
+            activeLogoutAttemptRef,
+            isLoggingOut: dashLoggingOut,
+            setIsLoggingOut: (v) => {
+              dashLoggingOut = v;
+            },
+            setLogoutError: (e) => {
+              dashLogoutError = e;
+            },
+            performLogout: () => new Promise((resolve) => logoutResolvers.push(resolve)),
+            eventTarget: winDash,
+            onRedirect: (url) => {
+              redirectTarget = url || '__reload__';
+            },
+          });
+          const secondAttemptId = activeLogoutAttemptRef.current;
+          assert.ok(secondAttemptId && secondAttemptId !== firstAttemptId);
+          assert.deepEqual(coordSib.getPendingRemoteLogoutAttemptIds(), [secondAttemptId]);
+
+          // Stale completion from firstAttemptId must NOT unlock secondAttemptId
+          broadcastCrossTabSessionInvalidation(
+            'logout-complete',
+            'tab-dash',
+            {
+              createBroadcastChannel: createSharedBroadcastChannel,
+              storage: makeCrossTabStorage(winDash, [winSib]),
+            },
+            undefined,
+            firstAttemptId!
+          );
+          assert.equal(coordSib.getState().isLogoutInProgress, true);
+          assert.equal(pendingSib.length, 2);
+
+          logoutResolvers[1]({ success: true, logoutUrl: 'https://shopify.com/logout-done' });
+          await pRetryLogout;
+          assert.equal(redirectTarget, 'https://shopify.com/logout-done');
+          const completeSignal = dashPayloads[dashPayloads.length - 1];
+          assert.equal(completeSignal.reason, 'logout-complete');
+          assert.equal(completeSignal.logoutAttemptId, secondAttemptId);
+          assert.equal(coordSib.getState().isLogoutInProgress, false);
+          assert.equal(pendingSib.length, 3);
+          pendingSib[2].resolve(sessionGuest);
+          await flushMicrotasks();
+          assert.equal(coordSib.getState().sessionStatus, 'guest');
+        } finally {
+          unbindDash();
+          unbindSib();
+        }
+      }
+    }
+
+    // 17.4 Failures, no auto-retry loop on focus/tab-return, explicit Retry, and Logout with late responses
+    {
+      const storage = createMemoryStorage();
+      saveWishlistForScope(customerAId, customerAProducts, storage);
+      const wishlistCoordinator = createWishlistCoordinator({ storage });
+      const pending: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+      const coordinator = createSessionVerificationCoordinator({
+        fetchSession: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+        wishlistCoordinator,
+      });
+
+      const pMount = coordinator.verify('mount');
+      pending[0].reject(new Error('HTTP 503 Service Unavailable'));
+      await pMount;
+
+      assert.equal(coordinator.getState().isVerifying, false);
+      assert.equal(coordinator.getState().sessionStatus, 'unresolved');
+      assert.match(coordinator.getState().sessionError || '', /503/);
+      assert.equal(wishlistCoordinator.getState().items.length, 0);
+
+      // Focus / tab-return after failure must NOT spawn automatic retry loops
+      await coordinator.verify('focus');
+      await coordinator.verify('tab-return');
+      assert.equal(pending.length, 1, 'No automatic retry loop after failure');
+
+      // Explicit retry restores verified customer
+      const pRetry = coordinator.verify('retry');
+      assert.equal(pending.length, 2);
+      assert.equal(coordinator.getState().isVerifying, true);
+      pending[1].resolve(sessionA);
+      await pRetry;
+      assert.equal(coordinator.getState().sessionStatus, 'authenticated');
+      assert.equal(wishlistCoordinator.getState().items.length, 4);
+
+      // Logout while check pending + late authenticated response + recovery
+      const pPreLogout = coordinator.verify('tab-return');
+      assert.equal(pending.length, 3);
+      coordinator.handleLogoutStart();
+      assert.equal(coordinator.getState().isLogoutInProgress, true);
+      assert.equal(coordinator.getState().isVerifying, false);
+      assert.equal(coordinator.getState().sessionStatus, 'unresolved');
+      assert.equal(wishlistCoordinator.getState().items.length, 0);
+
+      await coordinator.verify('tab-return');
+      await coordinator.verify('session-change');
+      await coordinator.verify('cross-tab');
+      await coordinator.verify('retry');
+      assert.equal(pending.length, 3, 'All triggers ignored while logout is in progress');
+
+      pending[2].resolve(sessionA);
+      await pPreLogout;
+      assert.equal(coordinator.getState().sessionStatus, 'unresolved', 'Late pre-logout response rejected during logout');
+      assert.equal(wishlistCoordinator.getState().items.length, 0);
+
+      const pRecover = coordinator.handleLogoutRecovered();
+      assert.equal(pending.length, 4);
+      pending[3].resolve(sessionGuest);
+      await pRecover;
+      assert.equal(coordinator.getState().isLogoutInProgress, false);
+      assert.equal(coordinator.getState().sessionStatus, 'guest');
+      assert.deepEqual(
+        loadWishlistForScope(customerAId, storage).map((i) => i.id),
+        customerAProducts.map((i) => i.id),
+        'Saved storage is never cleared across failures, transitions, or logout'
+      );
+    }
+
+    // 17.5 Loading copy vs Failure copy in CustomerDashboard & WishlistDrawer
+    {
+      const baseSavedProps: CustomerDashboardAuthenticatedViewProps = {
+        activeTab: 'saved',
+        selectedOrderId: null,
+        customerDisplayName: 'Sanelow Collector',
+        customerEmail: 'collector@example.com',
+        profile: null,
+        orders: [],
+        activeOrder: null,
+        isDataLoading: false,
+        isPaginating: false,
+        hasAttemptedOrdersLoad: true,
+        dataError: null,
+        isLoggingOut: false,
+        hasNextPage: false,
+        hasPrevPage: false,
+        startCursor: null,
+        endCursor: null,
+        orderSearch: '',
+        orderStatusFilter: 'all',
+        hostedUrl: 'https://shopify.com/79461089448/account',
+        currency: 'USD',
+        savedItems: [],
+        isSavedItemsDisabled: true,
+        isSessionVerifying: true,
+        onSelectTab: () => {},
+        onSelectOrder: () => {},
+        onClearSelectedOrder: () => {},
+        onOrderSearchChange: () => {},
+        onOrderStatusFilterChange: () => {},
+        onResetOrderFilters: () => {},
+        onRefreshDashboard: () => {},
+        onLoadOrdersPage: () => {},
+        onNavigateHome: () => {},
+        onLogout: () => {},
+        onRetrySession: () => {},
+      };
+
+      const pendingDashHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, baseSavedProps)
+      );
+      assert.ok(pendingDashHtml.includes('Verifying account…'), 'Pending dashboard saved view shows Verifying account…');
+      assert.ok(!pendingDashHtml.includes('Session Unresolved'), 'Pending view must NOT show failure copy');
+      assert.ok(!pendingDashHtml.includes('Retry Verification'), 'Pending view must NOT show Retry button');
+
+      const pendingOverviewHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseSavedProps,
+          activeTab: 'overview',
+        })
+      );
+      assert.ok(pendingOverviewHtml.includes('Verifying account…'));
+
+      const failedDashHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseSavedProps,
+          isSessionVerifying: false,
+        })
+      );
+      assert.ok(failedDashHtml.includes('Session Unresolved'));
+      assert.ok(failedDashHtml.includes('Retry Verification'));
+
+      const pendingDrawerHtml = renderToStaticMarkup(
+        React.createElement(WishlistDrawer, {
+          isOpen: true,
+          onClose: () => {},
+          wishlist: [],
+          currency: 'USD',
+          onRemoveFromWishlist: () => {},
+          onAddToCart: () => {},
+          onQuickView: () => {},
+          isWishlistDisabled: true,
+          isSessionVerifying: true,
+          onRetrySession: () => {},
+        })
+      );
+      assert.ok(pendingDrawerHtml.includes('Saved Merch (—)'));
+      assert.ok(pendingDrawerHtml.includes('Verifying account…'));
+      assert.ok(!pendingDrawerHtml.includes('Session Unresolved'));
+      assert.ok(!pendingDrawerHtml.includes('Retry Verification'));
+
+      const failedDrawerHtml = renderToStaticMarkup(
+        React.createElement(WishlistDrawer, {
+          isOpen: true,
+          onClose: () => {},
+          wishlist: [],
+          currency: 'USD',
+          onRemoveFromWishlist: () => {},
+          onAddToCart: () => {},
+          onQuickView: () => {},
+          isWishlistDisabled: true,
+          isSessionVerifying: false,
+          onRetrySession: () => {},
+        })
+      );
+      assert.ok(failedDrawerHtml.includes('Session Unresolved'));
+      assert.ok(failedDrawerHtml.includes('Retry Verification'));
+    }
+
+    // 17.6 Static verification: App.tsx wires isVerifying, bindBrowserSessionSync, cross-tab & loading/retry props
+    {
+      const appSource = fs.readFileSync(path.resolve('./src/App.tsx'), 'utf-8');
+      assert.match(appSource, /bindBrowserSessionSync\(defaultSessionCoordinator\)/);
+      assert.match(appSource, /currentSessionState\.isVerifying/);
+      assert.match(appSource, /!isVerifyingSession/);
+      assert.match(appSource, /isSessionVerifying=\{isVerifyingSession\}/);
+      assert.doesNotMatch(appSource, /onClick=\{syncSession\}/);
+      assert.doesNotMatch(appSource, /onRetrySession=\{syncSession\}/);
+
+      const sessionSource = fs.readFileSync(path.resolve('./src/lib/session.ts'), 'utf-8');
+      assert.doesNotMatch(sessionSource, /focusCooldownMs|DEFAULT_FOCUS_REVALIDATION_COOLDOWN_MS|emitDevTrace|onDevTrace/);
+      assert.ok(defaultSessionCoordinator instanceof SessionVerificationCoordinator);
+      assert.ok(SESSION_INVALIDATION_CHANNEL_NAME.length > 0);
+      assert.ok(typeof broadcastCrossTabSessionInvalidation === 'function');
+      assert.ok(new TabReturnTracker() instanceof TabReturnTracker);
+
+      // Confirm no background polling / setInterval in src triggers session verification or synthetic focus/session events
+      const srcFiles = [
+        './src/App.tsx',
+        './src/lib/session.ts',
+        './src/lib/shopify.ts',
+        './src/components/CustomerDashboard.tsx',
+      ];
+      for (const file of srcFiles) {
+        const content = fs.readFileSync(path.resolve(file), 'utf-8');
+        assert.doesNotMatch(
+          content,
+          /setInterval\([^)]*(fetchCustomerSession|verify\(|customer-session-changed)/s,
+          `${file} must not poll session verification on an interval`
+        );
+      }
+    }
+  });
 });
-
-
