@@ -955,7 +955,7 @@ export default function App() {
           />
 
           {/* Product Catalog Section */}
-          <main ref={catalogRef} id="catalogue" className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 w-full scroll-mt-28 sm:scroll-mt-32">
+          <main ref={catalogRef} id="catalogue" className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 w-full scroll-mt-20 sm:scroll-mt-24">
             {/* Catalog Header & Controls Bar */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-[#e2e8f0]">
               <div>
@@ -1184,6 +1184,14 @@ export default function App() {
         onOpenFaq={() => setIsFaqOpen(true)}
         onOpenTrackOrder={() => setIsTrackOrderOpen(true)}
         onOpenCustomerPortal={() => setIsCustomerPortalOpen(true)}
+        onShopAllMerch={() => {
+          setCurrentCategory('all');
+          if (route.view !== 'home') {
+            navigateTo('/');
+          } else {
+            scrollToCatalog();
+          }
+        }}
         customerAccountUrl={SHOPIFY_CUSTOMER_ACCOUNT_URL}
       />
 
