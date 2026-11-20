@@ -865,7 +865,8 @@ export default function App() {
           else navigateTo('/account');
         }}
         isCustomAccountsEnabled={ENABLE_CUSTOM_CUSTOMER_ACCOUNTS}
-        customerSession={customerSession}
+        sessionStatus={isLogoutInProgressRef.current ? 'unresolved' : sessionStatus}
+        customerSession={isLogoutInProgressRef.current ? null : customerSession}
         searchQuery={searchQuery}
         onSearchChange={(q) => {
           setSearchQuery(q);
