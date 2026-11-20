@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Footer } from '../src/components/Footer';
+import { Navbar } from '../src/components/Navbar';
 import {
   formatPrice,
   DEFAULT_CURRENCY,
@@ -939,7 +940,7 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     assert.equal(seoSchema.contactPoint[0].email, 'merch@sanelowmusiclabel.co.za');
   });
 
-  it('34. Shared Footer renders accurate neutral copy without unverified promises or live status dots', async () => {
+  it('34. Shared Footer replaces non-working newsletter/discount block with honest shopping CTA while keeping neutral copy', async () => {
     const fs = await import('fs');
     const path = await import('path');
 
@@ -947,10 +948,21 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
       React.createElement(Footer, {
         onOpenTrackOrder: () => {},
         onOpenCustomerPortal: () => {},
+        onShopAllMerch: () => {},
       })
     );
 
-    // Exact required copy
+    // Honest shopping CTA replacement copy & real destination
+    assert.ok(html.includes('SANELOW MUSIC GROUP MERCH'), 'Footer must display SANELOW MUSIC GROUP MERCH eyebrow');
+    assert.ok(html.includes('Explore the latest merch.'), 'Footer must display Explore the latest merch. heading');
+    assert.ok(
+      html.includes('Browse the collection and find your next favourite.'),
+      'Footer must display Browse the collection and find your next favourite. description'
+    );
+    assert.ok(html.includes('Shop all merch'), 'Footer must display Shop all merch action link');
+    assert.ok(html.includes('href="/"'), 'Footer Shop all merch CTA must link to existing All Merch route (/)');
+
+    // Preserved neutral footer copy, contact email, and working order/account actions
     assert.ok(
       html.includes('Explore Sanelow Music Group merch. Browse the collection and check individual product pages for available options and details.'),
       'Footer must display updated brand description'
@@ -969,18 +981,26 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
       html.includes('Questions about a product or an existing order? Email our merch team.'),
       'Footer must display updated support description'
     );
-
-    // Preserved navigation, contact link, and unchanged newsletter offer
     assert.ok(html.includes('Track Your Shipment &amp; Orders'));
     assert.ok(html.includes('Sign in / Create account'));
     assert.ok(html.includes(`mailto:${STORE_CONTACT_EMAIL}`));
     assert.ok(html.includes(STORE_CONTACT_EMAIL));
-    assert.ok(html.includes('EXCLUSIVE DROP ACCESS'));
-    assert.ok(html.includes('Get 15% OFF Your First Merch Drop.'));
 
-    // Removed claims & live-status indicator must not appear in rendered Footer HTML
+    // Removed non-working newsletter form, MERCH15, 15% OFF, false promises, and earlier unverified claims
     const lowerHtml = html.toLowerCase();
     const removedPhrases = [
+      '<form',
+      '<input',
+      'type="email"',
+      'exclusive drop access',
+      '15% off',
+      'merch15',
+      'vip drop list',
+      'join drop list',
+      'pre-order allocations',
+      'restock notifications',
+      'early streetwear drop',
+      'enter your email address',
       'animate-pulse',
       'custom-milled',
       'french terry',
@@ -1000,7 +1020,13 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
       'fabric sizing',
     ];
     for (const phrase of removedPhrases) {
-      assert.ok(!lowerHtml.includes(phrase), `Footer must not contain removed claim or status indicator: "${phrase}"`);
+      assert.ok(!lowerHtml.includes(phrase), `Footer must not contain removed form, discount, or unverified claim: "${phrase}"`);
+    }
+
+    // Confirm Footer.tsx source no longer carries newsletter-only state/handlers
+    const footerSource = fs.readFileSync(path.resolve('src/components/Footer.tsx'), 'utf-8');
+    for (const deadSymbol of ['handleSubscribe', 'isSubscribed', 'newsletterEmail', 'MERCH15']) {
+      assert.ok(!footerSource.includes(deadSymbol), `Footer.tsx must not retain unused symbol "${deadSymbol}"`);
     }
 
     // Confirm SSR template does not emit duplicate unverified footer claims
@@ -1008,6 +1034,91 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     for (const phrase of ['air cargo', '24-hour express', '256-bit ssl', 'brand guarantee', 'merch concierge']) {
       assert.ok(!renderSource.includes(phrase), `api/render.ts must not contain duplicate unverified footer claim: "${phrase}"`);
     }
+  });
+
+  it('35. Storefront Navbar removes topmost announcement strip while preserving main navbar controls and updated page offsets', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const htmlClosed = renderToStaticMarkup(
+      React.createElement(Navbar, {
+        currentCategory: 'all',
+        onSelectCategory: () => {},
+        currency: 'USD',
+        onSelectCurrency: () => {},
+        cartCount: 2,
+        cartTotalAmount: 120,
+        wishlistCount: 3,
+        onOpenCart: () => {},
+        onOpenWishlist: () => {},
+        onOpenTrackOrder: () => {},
+        onOpenCustomerPortal: () => {},
+        onNavigateAccount: () => {},
+        searchQuery: '',
+        onSearchChange: () => {},
+        onNavigateGallery: () => {},
+      })
+    );
+
+    const htmlWithMobileMenu = renderToStaticMarkup(
+      React.createElement(Navbar, {
+        currentCategory: 'all',
+        onSelectCategory: () => {},
+        currency: 'USD',
+        onSelectCurrency: () => {},
+        cartCount: 2,
+        cartTotalAmount: 120,
+        wishlistCount: 3,
+        onOpenCart: () => {},
+        onOpenWishlist: () => {},
+        onOpenTrackOrder: () => {},
+        onOpenCustomerPortal: () => {},
+        onNavigateAccount: () => {},
+        searchQuery: '',
+        onSearchChange: () => {},
+        onNavigateGallery: () => {},
+        defaultMobileMenuOpen: true,
+      })
+    );
+
+    // Topmost announcement strip and rotating/drop copy must be removed
+    for (const html of [htmlClosed, htmlWithMobileMenu]) {
+      assert.ok(!html.includes('Official Shopify Storefront'), 'Announcement strip text "Official Shopify Storefront" must be removed');
+      assert.ok(!html.includes('South Africa &amp; Worldwide Delivery'), 'Announcement strip text "South Africa & Worldwide Delivery" must be removed');
+      assert.ok(!html.includes('South Africa & Worldwide Delivery'), 'Announcement strip delivery text must be removed');
+      assert.ok(!html.includes('ARCHIVE DROP LIVE'), 'Drop announcement text must be removed');
+      assert.ok(!html.includes('animate-ping'), 'Announcement strip live ping indicator must be removed');
+    }
+
+    // Preserved sticky main navbar and all interactive controls
+    assert.ok(htmlClosed.includes('sticky top-0'), 'Main navbar must remain sticky at top-0');
+    assert.ok(htmlClosed.includes('id="navbar-brand-logo"'), 'Sanelow logo must be preserved');
+    assert.ok(htmlClosed.includes('id="mobile-menu-btn"'), 'Mobile menu button must be preserved');
+    for (const catKey of ['all', 'hoodies-fleece', 'graphic-tees', 'outerwear', 'headwear', 'bottoms', 'accessories']) {
+      assert.ok(htmlClosed.includes(`id="nav-cat-${catKey}"`), `Product category ${catKey} must be preserved`);
+    }
+    assert.ok(htmlClosed.includes('id="nav-link-gallery"'), 'Gallery link must be preserved');
+    assert.ok(htmlClosed.includes('id="search-toggle-btn"'), 'Search trigger must be preserved');
+    assert.ok(htmlClosed.includes('id="nav-customer-account-link"'), 'Account link must be preserved');
+    assert.ok(htmlClosed.includes('id="wishlist-drawer-btn"'), 'Wishlist button must be preserved');
+    assert.ok(htmlClosed.includes('id="currency-dropdown-toggle"'), 'Currency selector must be preserved');
+    assert.ok(htmlClosed.includes('id="cart-drawer-btn"'), 'Cart button must be preserved');
+
+    // Mobile dropdown controls preserved
+    assert.ok(htmlWithMobileMenu.includes('id="mobile-nav-wishlist"'));
+    assert.ok(htmlWithMobileMenu.includes('id="mobile-nav-sign-in"'));
+    assert.ok(htmlWithMobileMenu.includes('id="mobile-nav-my-orders"'));
+    assert.ok(htmlWithMobileMenu.includes('Storefront Currency (USD)'));
+
+    // Page spacing / scroll offsets no longer pad for the removed announcement bar
+    const collectionPageSource = fs.readFileSync(path.resolve('src/components/CollectionPage.tsx'), 'utf-8');
+    assert.ok(!collectionPageSource.includes('pt-28'), 'CollectionPage must not keep oversized pt-28 gap');
+    assert.ok(!collectionPageSource.includes('sm:pt-32'), 'CollectionPage must not keep oversized sm:pt-32 gap');
+    assert.ok(collectionPageSource.includes('scroll-mt-20 sm:scroll-mt-24'));
+
+    const appSource = fs.readFileSync(path.resolve('src/App.tsx'), 'utf-8');
+    assert.ok(!appSource.includes('scroll-mt-28 sm:scroll-mt-32'), 'App.tsx catalogue scroll-mt must reflect reduced header height');
+    assert.ok(appSource.includes('scroll-mt-20 sm:scroll-mt-24'));
   });
 });
 
