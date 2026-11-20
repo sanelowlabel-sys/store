@@ -1,9 +1,13 @@
 import test, { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Footer } from '../src/components/Footer';
 import {
   formatPrice,
   DEFAULT_CURRENCY,
   DEFAULT_COUNTRY,
+  STORE_CONTACT_EMAIL,
   resolveColorSwatchHex,
   transformShopifyProduct,
   isEmbeddedPreview,
@@ -905,7 +909,108 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     assert.equal(currentProducts.length, 1, 'Stale request must not overwrite newer catalogue state');
     assert.equal(currentProducts[0].id, 'fast-1');
   });
+
+  it('33. Customer-facing contact email is centralized and verified across templates and schemas', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    // 1. Centralized constant
+    assert.equal(STORE_CONTACT_EMAIL, 'merch@sanelowmusiclabel.co.za');
+
+    // 2. Footer.tsx uses STORE_CONTACT_EMAIL and contains no legacy address
+    const footerContent = fs.readFileSync(path.resolve('src/components/Footer.tsx'), 'utf-8');
+    assert.ok(footerContent.includes('STORE_CONTACT_EMAIL'), 'Footer.tsx must reference STORE_CONTACT_EMAIL');
+    assert.ok(!footerContent.includes('meandmusicdistributors@gmail.com'), 'Footer.tsx must not contain legacy email');
+
+    // 3. TrackOrderModal.tsx uses STORE_CONTACT_EMAIL and contains no legacy address
+    const trackOrderContent = fs.readFileSync(path.resolve('src/components/TrackOrderModal.tsx'), 'utf-8');
+    assert.ok(trackOrderContent.includes('STORE_CONTACT_EMAIL'), 'TrackOrderModal.tsx must reference STORE_CONTACT_EMAIL');
+    assert.ok(!trackOrderContent.includes('meandmusicdistributors@gmail.com'), 'TrackOrderModal.tsx must not contain legacy email');
+
+    // 4. index.html contains the new contact email in Organization schema and no legacy address
+    const indexHtml = fs.readFileSync(path.resolve('index.html'), 'utf-8');
+    assert.ok(indexHtml.includes('"email": "merch@sanelowmusiclabel.co.za"'), 'index.html must include new email');
+    assert.ok(!indexHtml.includes('meandmusicdistributors@gmail.com'), 'index.html must not contain legacy email');
+
+    // 5. api/_seo.ts and api/render.ts generate Organization schema with the new email
+    const { generateOrganizationSchema: seoSchemaGen } = await import('../api/_seo');
+    const seoSchema = seoSchemaGen('https://shop.sanelowmusiclabel.co.za');
+    assert.equal(seoSchema.email, 'merch@sanelowmusiclabel.co.za');
+    assert.equal(seoSchema.contactPoint[0].email, 'merch@sanelowmusiclabel.co.za');
+  });
+
+  it('34. Shared Footer renders accurate neutral copy without unverified promises or live status dots', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const html = renderToStaticMarkup(
+      React.createElement(Footer, {
+        onOpenTrackOrder: () => {},
+        onOpenCustomerPortal: () => {},
+      })
+    );
+
+    // Exact required copy
+    assert.ok(
+      html.includes('Explore Sanelow Music Group merch. Browse the collection and check individual product pages for available options and details.'),
+      'Footer must display updated brand description'
+    );
+    assert.ok(
+      html.includes('Explore the latest merch'),
+      'Footer must display neutral tagline instead of active air cargo claim'
+    );
+    assert.ok(html.includes('Shopping information'), 'Footer must rename Brand Guarantee to Shopping information');
+    assert.ok(html.includes('Product details on each item page'));
+    assert.ok(html.includes('Available options shown per product'));
+    assert.ok(html.includes('Order history in your account'));
+    assert.ok(html.includes('Questions? Contact our merch team'));
+    assert.ok(html.includes('Merch support'), 'Footer must rename Merch Concierge to Merch support');
+    assert.ok(
+      html.includes('Questions about a product or an existing order? Email our merch team.'),
+      'Footer must display updated support description'
+    );
+
+    // Preserved navigation, contact link, and unchanged newsletter offer
+    assert.ok(html.includes('Track Your Shipment &amp; Orders'));
+    assert.ok(html.includes('Sign in / Create account'));
+    assert.ok(html.includes(`mailto:${STORE_CONTACT_EMAIL}`));
+    assert.ok(html.includes(STORE_CONTACT_EMAIL));
+    assert.ok(html.includes('EXCLUSIVE DROP ACCESS'));
+    assert.ok(html.includes('Get 15% OFF Your First Merch Drop.'));
+
+    // Removed claims & live-status indicator must not appear in rendered Footer HTML
+    const lowerHtml = html.toLowerCase();
+    const removedPhrases = [
+      'animate-pulse',
+      'custom-milled',
+      'french terry',
+      'acid-washed',
+      '450 gsm',
+      'air cargo',
+      'air freight',
+      'worldwide express',
+      '24-hour express',
+      '256-bit',
+      'ssl encrypted',
+      'hassle-free fit',
+      '30-day authentic fit',
+      'brand guarantee',
+      'merch concierge',
+      'frequently asked questions',
+      'fabric sizing',
+    ];
+    for (const phrase of removedPhrases) {
+      assert.ok(!lowerHtml.includes(phrase), `Footer must not contain removed claim or status indicator: "${phrase}"`);
+    }
+
+    // Confirm SSR template does not emit duplicate unverified footer claims
+    const renderSource = fs.readFileSync(path.resolve('api/render.ts'), 'utf-8').toLowerCase();
+    for (const phrase of ['air cargo', '24-hour express', '256-bit ssl', 'brand guarantee', 'merch concierge']) {
+      assert.ok(!renderSource.includes(phrase), `api/render.ts must not contain duplicate unverified footer claim: "${phrase}"`);
+    }
+  });
 });
+
 
 
 
