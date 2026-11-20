@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Heart, Trash2, ShoppingBag, Info } from 'lucide-react';
+import { X, Heart, Trash2, ShoppingBag, Info, RefreshCw } from 'lucide-react';
 import { Product } from '../types';
 import { formatPrice } from '../lib/shopify';
 
@@ -12,6 +12,7 @@ interface WishlistDrawerProps {
   onAddToCart: (product: Product) => void;
   onQuickView: (product: Product) => void;
   isWishlistDisabled?: boolean;
+  isSessionVerifying?: boolean;
   onRetrySession?: () => void;
 }
 
@@ -24,6 +25,7 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
   onAddToCart,
   onQuickView,
   isWishlistDisabled,
+  isSessionVerifying = false,
   onRetrySession,
 }) => {
   if (!isOpen) return null;
@@ -41,7 +43,7 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
           <div className="flex items-center gap-2.5">
             <Heart className="w-5 h-5 text-red-600 fill-current" />
             <h2 className="text-base font-heading font-extrabold text-[#0f172a] uppercase tracking-wider">
-              Saved Merch ({wishlist.length})
+              Saved Merch ({isWishlistDisabled ? '—' : wishlist.length})
             </h2>
           </div>
           <button
@@ -63,28 +65,44 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
         {/* List */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {isWishlistDisabled ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
-              <div className="w-16 h-16 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shadow-xs">
-                <Info className="w-8 h-8" />
+            isSessionVerifying ? (
+              <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
+                <div className="w-16 h-16 rounded-full bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center text-[#475569] shadow-xs">
+                  <RefreshCw className="w-7 h-7 animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-base font-heading font-extrabold text-[#0f172a]">
+                    Verifying account…
+                  </h3>
+                  <p className="text-xs text-[#64748b] mt-1 max-w-xs leading-relaxed">
+                    Checking your customer identity. Saved items are temporarily hidden until confirmed.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base font-heading font-extrabold text-[#0f172a]">
-                  Session Unresolved
-                </h3>
-                <p className="text-xs text-[#64748b] mt-1 max-w-xs leading-relaxed">
-                  Your customer session is currently verifying. Saved items are temporarily hidden until confirmed.
-                </p>
-                {onRetrySession && (
-                  <button
-                    type="button"
-                    onClick={onRetrySession}
-                    className="mt-3 px-3 py-1.5 rounded-lg bg-[#0f172a] text-white text-xs font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
-                  >
-                    Retry Verification
-                  </button>
-                )}
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
+                <div className="w-16 h-16 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shadow-xs">
+                  <Info className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-base font-heading font-extrabold text-[#0f172a]">
+                    Session Unresolved
+                  </h3>
+                  <p className="text-xs text-[#64748b] mt-1 max-w-xs leading-relaxed">
+                    Your customer session could not be verified. Saved items remain hidden until confirmed.
+                  </p>
+                  {onRetrySession && (
+                    <button
+                      type="button"
+                      onClick={onRetrySession}
+                      className="mt-3 px-3 py-1.5 rounded-lg bg-[#0f172a] text-white text-xs font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      Retry Verification
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            )
           ) : wishlist.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
               <div className="w-16 h-16 rounded-full bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center text-[#64748b] shadow-xs">

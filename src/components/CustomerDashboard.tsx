@@ -34,6 +34,7 @@ import {
   fetchCustomerOrdersList,
   fetchCustomerProfileData,
   logoutCustomer,
+  createLogoutAttemptId,
   formatPrice,
   SHOPIFY_CUSTOMER_ACCOUNT_URL,
   ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
@@ -561,6 +562,111 @@ export function bindCustomerDashboardLifecycle({
   };
 }
 
+export interface ExecuteDashboardLogoutOptions {
+  activeLogoutAttemptRef: { current: string | null };
+  isLoggingOut: boolean;
+  setIsLoggingOut: (value: boolean) => void;
+  setLogoutError: (value: string | null) => void;
+  performLogout?: () => Promise<{ success: boolean; logoutUrl?: string; error?: string }>;
+  createAttemptId?: () => string;
+  eventTarget?: Pick<EventTarget, 'dispatchEvent'>;
+  onRedirect?: (logoutUrl?: string) => void;
+}
+
+/**
+ * Production CustomerDashboard logout runner that creates a non-sensitive logoutAttemptId
+ * and correlates customer-logout-started, customer-logout-completed, and customer-logout-failed events.
+ */
+export async function executeDashboardLogout(options: ExecuteDashboardLogoutOptions): Promise<string | null> {
+  if (options.isLoggingOut) return null;
+  const createId = options.createAttemptId ?? createLogoutAttemptId;
+  const attemptId = createId();
+  options.activeLogoutAttemptRef.current = attemptId;
+  options.setIsLoggingOut(true);
+  options.setLogoutError(null);
+
+  const target = options.eventTarget ?? (typeof window !== 'undefined' ? window : undefined);
+  target?.dispatchEvent(
+    new CustomEvent('customer-logout-started', { detail: { logoutAttemptId: attemptId } })
+  );
+
+  const performLogout = options.performLogout ?? logoutCustomer;
+  try {
+    const res = await performLogout();
+    if (res.success) {
+      options.activeLogoutAttemptRef.current = null;
+      target?.dispatchEvent(
+        new CustomEvent('customer-logout-completed', { detail: { logoutAttemptId: attemptId } })
+      );
+      if (options.onRedirect) {
+        options.onRedirect(res.logoutUrl);
+      } else if (typeof window !== 'undefined') {
+        if (res.logoutUrl) {
+          window.location.href = res.logoutUrl;
+        } else {
+          window.location.reload();
+        }
+      }
+    } else {
+      options.setIsLoggingOut(false);
+      options.setLogoutError(res.error || 'Failed to sign out. Please try again.');
+      target?.dispatchEvent(
+        new CustomEvent('customer-logout-failed', {
+          detail: { error: res.error, logoutAttemptId: attemptId },
+        })
+      );
+    }
+  } catch (err: any) {
+    options.setIsLoggingOut(false);
+    options.setLogoutError(err?.message || 'Network error during sign out.');
+    target?.dispatchEvent(
+      new CustomEvent('customer-logout-failed', {
+        detail: { error: err?.message, logoutAttemptId: attemptId },
+      })
+    );
+  }
+  return attemptId;
+}
+
+export interface ExecuteDashboardResumeSessionOptions {
+  activeLogoutAttemptRef: { current: string | null };
+  setLogoutError: (value: string | null) => void;
+  setIsLoggingOut: (value: boolean) => void;
+  controller: CustomerDashboardController | null;
+  eventTarget?: Pick<EventTarget, 'dispatchEvent'>;
+}
+
+/**
+ * Production CustomerDashboard recovery runner that propagates the correlated logoutAttemptId
+ * on customer-logout-recovered and reloads the active dashboard view.
+ */
+export function executeDashboardResumeSession(options: ExecuteDashboardResumeSessionOptions): string | null {
+  const attemptId = options.activeLogoutAttemptRef.current;
+  options.activeLogoutAttemptRef.current = null;
+  options.setLogoutError(null);
+  options.setIsLoggingOut(false);
+
+  const target = options.eventTarget ?? (typeof window !== 'undefined' ? window : undefined);
+  target?.dispatchEvent(
+    new CustomEvent(
+      'customer-logout-recovered',
+      attemptId ? { detail: { logoutAttemptId: attemptId } } : undefined
+    )
+  );
+
+  const controller = options.controller;
+  if (controller) {
+    const currentTab = controller.getState().activeTab;
+    if (currentTab === 'orders' || currentTab === 'order-detail') {
+      void controller.loadOrdersPage();
+      void controller.loadProfile();
+    } else {
+      void controller.loadDashboard();
+    }
+  }
+  return attemptId;
+}
+
 export interface CustomerDashboardProps {
   initialTab?: DashboardTab;
   initialOrderId?: string;
@@ -568,6 +674,7 @@ export interface CustomerDashboardProps {
   currency?: string;
   savedItems?: Product[];
   isSavedItemsDisabled?: boolean;
+  isSessionVerifying?: boolean;
   onToggleSavedItem?: (product: Product) => void;
   onAddToCartFromSaved?: (product: Product) => void;
   onViewSavedProduct?: (product: Product) => void;
@@ -597,6 +704,7 @@ export interface CustomerDashboardAuthenticatedViewProps {
   currency: string;
   savedItems: Product[];
   isSavedItemsDisabled: boolean;
+  isSessionVerifying?: boolean;
   onSelectTab: (tab: DashboardTab) => void;
   onSelectOrder: (orderId: string) => void;
   onClearSelectedOrder: () => void;
@@ -636,6 +744,7 @@ export function CustomerDashboardAuthenticatedView({
   currency,
   savedItems,
   isSavedItemsDisabled,
+  isSessionVerifying = false,
   onSelectTab,
   onSelectOrder,
   onClearSelectedOrder,
@@ -966,7 +1075,11 @@ export function CustomerDashboardAuthenticatedView({
                       {isSavedItemsDisabled ? '—' : savedItems.length}
                     </p>
                     <p className="text-xs text-[#64748b]">
-                      {isSavedItemsDisabled ? 'Verifying session' : 'Saved in this browser'}
+                      {isSavedItemsDisabled
+                        ? isSessionVerifying
+                          ? 'Verifying account…'
+                          : 'Session unresolved'
+                        : 'Saved in this browser'}
                     </p>
                   </div>
                 </section>
@@ -1698,29 +1811,45 @@ export function CustomerDashboardAuthenticatedView({
                 </div>
 
                 {isSavedItemsDisabled ? (
-                  <div className="py-10 text-center space-y-4">
-                    <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
-                      <Info className="w-6 h-6" />
+                  isSessionVerifying ? (
+                    <div className="py-10 text-center space-y-4">
+                      <div className="w-12 h-12 mx-auto rounded-full bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center text-[#475569]">
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-heading font-bold text-[#0f172a]">
+                          Verifying account…
+                        </h3>
+                        <p className="text-xs text-[#64748b] max-w-sm mx-auto">
+                          Checking your customer identity. Saved items remain hidden until your session is confirmed.
+                        </p>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <h3 className="text-sm font-heading font-bold text-[#0f172a]">
-                        Session Unresolved
-                      </h3>
-                      <p className="text-xs text-[#64748b] max-w-sm mx-auto">
-                        Your customer session is verifying. Saved items remain hidden until your account identity is confirmed.
-                      </p>
+                  ) : (
+                    <div className="py-10 text-center space-y-4">
+                      <div className="w-12 h-12 mx-auto rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                        <Info className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-heading font-bold text-[#0f172a]">
+                          Session Unresolved
+                        </h3>
+                        <p className="text-xs text-[#64748b] max-w-sm mx-auto">
+                          Your customer session could not be verified. Saved items remain hidden until your account identity is confirmed.
+                        </p>
+                      </div>
+                      {onRetrySession && (
+                        <button
+                          type="button"
+                          onClick={onRetrySession}
+                          className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-xl bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-semibold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Retry Verification</span>
+                        </button>
+                      )}
                     </div>
-                    {onRetrySession && (
-                      <button
-                        type="button"
-                        onClick={onRetrySession}
-                        className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-xl bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-semibold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Retry Verification</span>
-                      </button>
-                    )}
-                  </div>
+                  )
                 ) : savedItems.length === 0 ? (
                   <div className="py-10 text-center space-y-4">
                     <div className="w-12 h-12 mx-auto rounded-full bg-[#f8fafc] border border-[#e2e8f0] flex items-center justify-center text-[#64748b]">
@@ -2003,6 +2132,7 @@ export function CustomerDashboard({
   currency = 'USD',
   savedItems = [],
   isSavedItemsDisabled = false,
+  isSessionVerifying = false,
   onToggleSavedItem,
   onAddToCartFromSaved,
   onViewSavedProduct,
@@ -2020,6 +2150,7 @@ export function CustomerDashboard({
   );
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const activeLogoutAttemptIdRef = useRef<string | null>(null);
 
   // Order list search / filter state (client-side over loaded page)
   const [orderSearch, setOrderSearch] = useState('');
@@ -2046,46 +2177,21 @@ export function CustomerDashboard({
 
   // Handle Logout
   async function handleLogout() {
-    if (isLoggingOut) return; // Prevent duplicate logout submissions
-    setIsLoggingOut(true);
-    setLogoutError(null);
-
-    // Dispatch ONLY customer-logout-started (premature customer-session-changed removed!)
-    window.dispatchEvent(new Event('customer-logout-started'));
-
-    try {
-      const res = await logoutCustomer();
-      if (res.success) {
-        if (res.logoutUrl) {
-          window.location.href = res.logoutUrl;
-        } else {
-          window.location.reload();
-        }
-      } else {
-        setIsLoggingOut(false);
-        setLogoutError(res.error || 'Failed to sign out. Please try again.');
-        window.dispatchEvent(new CustomEvent('customer-logout-failed', { detail: { error: res.error } }));
-      }
-    } catch (err: any) {
-      setIsLoggingOut(false);
-      setLogoutError(err?.message || 'Network error during sign out.');
-      window.dispatchEvent(new CustomEvent('customer-logout-failed', { detail: { error: err?.message } }));
-    }
+    await executeDashboardLogout({
+      activeLogoutAttemptRef: activeLogoutAttemptIdRef,
+      isLoggingOut,
+      setIsLoggingOut,
+      setLogoutError,
+    });
   }
 
   function handleResumeSession() {
-    setLogoutError(null);
-    setIsLoggingOut(false);
-    window.dispatchEvent(new Event('customer-logout-recovered'));
-    const controller = controllerRef.current;
-    if (!controller) return;
-    const currentTab = controller.getState().activeTab;
-    if (currentTab === 'orders' || currentTab === 'order-detail') {
-      void controller.loadOrdersPage();
-      void controller.loadProfile();
-    } else {
-      void controller.loadDashboard();
-    }
+    executeDashboardResumeSession({
+      activeLogoutAttemptRef: activeLogoutAttemptIdRef,
+      setLogoutError,
+      setIsLoggingOut,
+      controller: controllerRef.current,
+    });
   }
 
   const {
@@ -2362,6 +2468,7 @@ export function CustomerDashboard({
       currency={currency}
       savedItems={savedItems}
       isSavedItemsDisabled={isSavedItemsDisabled}
+      isSessionVerifying={isSessionVerifying}
       onSelectTab={(tab) => controllerRef.current?.selectTab(tab)}
       onSelectOrder={(orderId) => controllerRef.current?.selectOrder(orderId)}
       onClearSelectedOrder={() => controllerRef.current?.clearSelectedOrder()}
