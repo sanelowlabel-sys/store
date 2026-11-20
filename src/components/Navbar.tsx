@@ -4,6 +4,94 @@ import { Category, CustomerSession } from '../types';
 import { SUPPORTED_CURRENCIES, formatPrice } from '../data/products';
 import { SHOPIFY_CUSTOMER_ACCOUNT_URL, ENABLE_CUSTOM_CUSTOMER_ACCOUNTS } from '../lib/shopify';
 
+export type HeaderSessionStatus = 'unresolved' | 'authenticated' | 'guest';
+
+export interface NavbarAccountDisplay {
+  status: HeaderSessionStatus;
+  label: 'My account' | 'Sign in / Create account' | 'Account';
+  ariaLabel: 'My account' | 'Sign in / Create account' | 'Account';
+  href: string;
+  useInAppAccountNav: boolean;
+  openPortalModal: boolean;
+  openExternalInNewTab: boolean;
+}
+
+export function resolveNavbarAccountDisplay(params: {
+  sessionStatus?: HeaderSessionStatus;
+  customerSession?: CustomerSession | null;
+  isCustomAccountsEnabled?: boolean;
+  customerAccountUrl?: string;
+}): NavbarAccountDisplay {
+  const {
+    sessionStatus,
+    customerSession = null,
+    isCustomAccountsEnabled = ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
+    customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
+  } = params;
+
+  const hasValidAuthenticatedSession = Boolean(
+    customerSession &&
+      customerSession.authenticated === true &&
+      typeof customerSession.customer?.id === 'string' &&
+      customerSession.customer.id.trim().length > 0
+  );
+
+  // Never derive authenticated status from tester access alone.
+  let resolvedStatus: HeaderSessionStatus;
+  if (sessionStatus !== undefined) {
+    if (sessionStatus === 'authenticated') {
+      resolvedStatus = hasValidAuthenticatedSession ? 'authenticated' : 'unresolved';
+    } else {
+      resolvedStatus = sessionStatus;
+    }
+  } else if (customerSession === null || customerSession === undefined) {
+    resolvedStatus = 'unresolved';
+  } else if (customerSession.authenticated === false) {
+    resolvedStatus = 'guest';
+  } else if (hasValidAuthenticatedSession) {
+    resolvedStatus = 'authenticated';
+  } else {
+    resolvedStatus = 'unresolved';
+  }
+
+  const isCustomAccountsActive = Boolean(isCustomAccountsEnabled || customerSession?.isTester);
+
+  if (resolvedStatus === 'authenticated') {
+    return {
+      status: 'authenticated',
+      label: 'My account',
+      ariaLabel: 'My account',
+      href: '/account',
+      useInAppAccountNav: true,
+      openPortalModal: false,
+      openExternalInNewTab: false,
+    };
+  }
+
+  if (resolvedStatus === 'guest') {
+    return {
+      status: 'guest',
+      label: 'Sign in / Create account',
+      ariaLabel: 'Sign in / Create account',
+      href: isCustomAccountsActive ? '/account' : (customerAccountUrl || '#sign-in'),
+      useInAppAccountNav: isCustomAccountsActive,
+      openPortalModal: !isCustomAccountsActive && !customerAccountUrl,
+      openExternalInNewTab: !isCustomAccountsActive && Boolean(customerAccountUrl),
+    };
+  }
+
+  // Unresolved or temporarily unavailable: neutral 'Account' label without claiming signed-in or signed-out state
+  return {
+    status: 'unresolved',
+    label: 'Account',
+    ariaLabel: 'Account',
+    href: isCustomAccountsActive ? '/account' : (customerAccountUrl || '#sign-in'),
+    useInAppAccountNav: isCustomAccountsActive,
+    openPortalModal: !isCustomAccountsActive && !customerAccountUrl,
+    openExternalInNewTab: !isCustomAccountsActive && Boolean(customerAccountUrl),
+  };
+}
+
 interface NavbarProps {
   currentCategory: Category;
   onSelectCategory: (cat: Category) => void;
@@ -18,6 +106,7 @@ interface NavbarProps {
   onOpenCustomerPortal: () => void;
   onNavigateAccount?: (section?: 'overview' | 'orders' | 'profile') => void;
   isCustomAccountsEnabled?: boolean;
+  sessionStatus?: HeaderSessionStatus;
   customerSession?: CustomerSession | null;
   customerAccountUrl?: string;
   searchQuery: string;
@@ -26,6 +115,7 @@ interface NavbarProps {
   currentView?: string;
   onNavigateGallery?: () => void;
   onNavigateLookbook?: () => void;
+  defaultMobileMenuOpen?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -42,6 +132,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenCustomerPortal,
   onNavigateAccount,
   isCustomAccountsEnabled = ENABLE_CUSTOM_CUSTOMER_ACCOUNTS,
+  sessionStatus,
   customerSession = null,
   customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
   searchQuery,
@@ -50,13 +141,21 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentView = 'home',
   onNavigateGallery,
   onNavigateLookbook,
+  defaultMobileMenuOpen = false,
 }) => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(defaultMobileMenuOpen);
   const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false);
 
   const handleGalleryNavigation = onNavigateGallery || onNavigateLookbook;
-  const isCustomAccountsActive = isCustomAccountsEnabled || Boolean(customerSession?.isTester);
+  const accountDisplay = resolveNavbarAccountDisplay({
+    sessionStatus,
+    customerSession,
+    isCustomAccountsEnabled,
+    customerAccountUrl,
+  });
+  const isCustomAccountsActive =
+    isCustomAccountsEnabled || Boolean(customerSession?.isTester) || accountDisplay.status === 'authenticated';
 
   const categories: { key: Category; label: string }[] = [
     { key: 'all', label: 'All Merch' },
@@ -130,7 +229,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Desktop Categories & Gallery - Visible on xl+ where full navigation fits without collision */}
-          <nav className="hidden xl:flex items-center gap-1 xl:gap-1.5" aria-label="Merchandise Categories">
+          <nav className="hidden xl:flex items-center gap-1 2xl:gap-1.5" aria-label="Merchandise Categories">
             {categories.map((cat) => (
               <a
                 key={cat.key}
@@ -173,7 +272,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Col 3 on collapsed (< xl): Action Buttons aligned right; xl:ml-auto on desktop */}
-          <div className="flex items-center justify-end gap-1 sm:gap-2.5 shrink-0 z-10 xl:ml-auto">
+          <div className="flex items-center justify-end gap-1 sm:gap-2 xl:gap-1.5 2xl:gap-2.5 shrink-0 z-10 xl:ml-auto">
             {/* My orders link - preserved on 2xl+, accessible via mobile menu on other viewports */}
             <a
               id="nav-my-orders-link"
@@ -247,34 +346,27 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Search className="w-4 h-4" />
             </button>
 
-            {/* Sign in / Create account Link - collapsed on < sm, preserved in mobile menu */}
+            {/* Account Link - collapsed on < sm, preserved in mobile menu */}
             <a
               id="nav-customer-account-link"
-              href={isCustomAccountsActive ? '/account' : (customerAccountUrl || '#sign-in')}
+              href={accountDisplay.href}
               onClick={(e) => {
-                if (isCustomAccountsActive && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                if (accountDisplay.useInAppAccountNav && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
                   e.preventDefault();
                   onNavigateAccount('overview');
-                } else if (!customerAccountUrl && !isCustomAccountsActive) {
+                } else if (accountDisplay.openPortalModal) {
                   e.preventDefault();
                   onOpenCustomerPortal();
                 }
               }}
-              target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
-              rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
-              className="hidden sm:flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl border border-[#e2e8f0] hover:border-red-600 hover:bg-[#f8fafc] text-[#0f172a] transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
-              aria-label="Sign in / Create account"
+              target={accountDisplay.openExternalInNewTab ? '_blank' : undefined}
+              rel={accountDisplay.openExternalInNewTab ? 'noopener noreferrer' : undefined}
+              className="hidden sm:flex items-center gap-1.5 p-2 sm:px-2.5 2xl:px-3 sm:py-1.5 rounded-xl border border-[#e2e8f0] hover:border-red-600 hover:bg-[#f8fafc] text-[#0f172a] transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none whitespace-nowrap"
+              aria-label={accountDisplay.ariaLabel}
             >
-              <User className="w-4 h-4 text-[#64748b]" />
-              <span className="hidden md:inline 2xl:hidden text-xs font-semibold">
-                {customerSession?.authenticated && customerSession.customer?.name
-                  ? `Hi, ${customerSession.customer.name.split(' ')[0]}`
-                  : 'Account'}
-              </span>
-              <span className="hidden 2xl:inline text-xs font-semibold">
-                {customerSession?.authenticated && customerSession.customer?.name
-                  ? `Hi, ${customerSession.customer.name.split(' ')[0]}`
-                  : 'Sign in / Create account'}
+              <User className="w-4 h-4 text-[#64748b] shrink-0" />
+              <span className="hidden md:inline text-xs font-semibold">
+                {accountDisplay.label}
               </span>
             </a>
 
@@ -445,28 +537,24 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
               <a
                 id="mobile-nav-sign-in"
-                href={isCustomAccountsActive ? '/account' : (customerAccountUrl || '#sign-in')}
+                href={accountDisplay.href}
                 onClick={(e) => {
-                  if (isCustomAccountsActive && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
+                  if (accountDisplay.useInAppAccountNav && onNavigateAccount && !e.metaKey && !e.ctrlKey) {
                     e.preventDefault();
                     onNavigateAccount('overview');
-                  } else if (!customerAccountUrl && !isCustomAccountsActive) {
+                  } else if (accountDisplay.openPortalModal) {
                     e.preventDefault();
                     onOpenCustomerPortal();
                   }
                   setIsMobileMenuOpen(false);
                 }}
-                target={!isCustomAccountsActive && customerAccountUrl ? '_blank' : undefined}
-                rel={!isCustomAccountsActive && customerAccountUrl ? 'noopener noreferrer' : undefined}
+                target={accountDisplay.openExternalInNewTab ? '_blank' : undefined}
+                rel={accountDisplay.openExternalInNewTab ? 'noopener noreferrer' : undefined}
                 className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold text-[#0f172a] hover:bg-[#f8fafc] transition-colors cursor-pointer"
-                aria-label="Sign in / Create account"
+                aria-label={accountDisplay.ariaLabel}
               >
                 <User className="w-4 h-4 text-red-600" />
-                <span>
-                  {customerSession?.authenticated && customerSession.customer?.name
-                    ? `Account (${customerSession.customer.name.split(' ')[0]})`
-                    : 'Sign in / Create account'}
-                </span>
+                <span>{accountDisplay.label}</span>
               </a>
               <a
                 id="mobile-nav-my-orders"
