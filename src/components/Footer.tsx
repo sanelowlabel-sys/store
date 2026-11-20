@@ -1,19 +1,18 @@
 import React, { useState } from 'react';
-import { ArrowRight, Check, ShieldCheck, Truck, HelpCircle, Clock, RefreshCw, Lock, User } from 'lucide-react';
+import { ArrowRight, Check, Truck, Lock, User, Package, Layers, ShoppingBag, Mail } from 'lucide-react';
 import { SHOPIFY_CUSTOMER_ACCOUNT_URL, STORE_CONTACT_EMAIL } from '../lib/shopify';
 
 interface FooterProps {
-  onOpenFaq: () => void;
+  onOpenFaq?: () => void;
   onOpenTrackOrder: () => void;
   onOpenCustomerPortal?: () => void;
   customerAccountUrl?: string;
 }
 
 export const Footer: React.FC<FooterProps> = ({
-  onOpenFaq,
   onOpenTrackOrder,
   onOpenCustomerPortal,
-  customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
+  customerAccountUrl: _customerAccountUrl = SHOPIFY_CUSTOMER_ACCOUNT_URL,
 }) => {
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -94,11 +93,10 @@ export const Footer: React.FC<FooterProps> = ({
               </div>
             </div>
             <p className="text-xs text-[#64748b] leading-relaxed max-w-sm">
-              Your premier direct-to-consumer destination for custom-milled heavyweight French Terry apparel, vintage acid-washed merch archives, and limited streetwear drops with global air freight tracking.
+              Explore Sanelow Music Group merch. Browse the collection and check individual product pages for available options and details.
             </p>
-            <div className="flex items-center gap-3 pt-1 text-xs font-mono text-[#64748b]">
-              <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
-              <span>Worldwide express air cargo active daily</span>
+            <div className="pt-1 text-xs font-mono text-[#64748b]">
+              <span>Explore the latest merch</span>
             </div>
           </div>
 
@@ -130,58 +128,30 @@ export const Footer: React.FC<FooterProps> = ({
                   </button>
                 </li>
               )}
-              <li>
-                <button
-                  type="button"
-                  onClick={onOpenFaq}
-                  className="hover:text-red-600 transition-colors text-left flex items-center gap-1.5 cursor-pointer text-[#0f172a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded px-1"
-                >
-                  <HelpCircle className="w-3.5 h-3.5 text-red-600" />
-                  <span>Frequently Asked Questions</span>
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={onOpenFaq}
-                  className="hover:text-red-600 transition-colors text-left cursor-pointer text-[#64748b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded px-1"
-                >
-                  Fabric Sizing & Fit Guide
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={onOpenFaq}
-                  className="hover:text-red-600 transition-colors text-left cursor-pointer text-[#64748b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded px-1"
-                >
-                  30-Day Authentic Fit Exchanges
-                </button>
-              </li>
             </ul>
           </div>
 
-          {/* Col 4: Guarantees */}
+          {/* Col 4: Shopping information */}
           <div className="space-y-3">
             <div className="text-xs font-mono uppercase font-bold text-[#0f172a] tracking-wider">
-              Brand Guarantee
+              Shopping information
             </div>
             <ul className="space-y-2.5 text-xs text-[#64748b]">
               <li className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-red-600 shrink-0" />
-                <span>Custom-Milled 450 GSM Quality</span>
+                <Package className="w-4 h-4 text-red-600 shrink-0" />
+                <span>Product details on each item page</span>
               </li>
               <li className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-red-600 shrink-0" />
-                <span>24-Hour Express Dispatch</span>
+                <Layers className="w-4 h-4 text-red-600 shrink-0" />
+                <span>Available options shown per product</span>
               </li>
               <li className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-red-600 shrink-0" />
-                <span>256-Bit SSL Encrypted Checkout</span>
+                <ShoppingBag className="w-4 h-4 text-red-600 shrink-0" />
+                <span>Order history in your account</span>
               </li>
               <li className="flex items-center gap-2">
-                <RefreshCw className="w-4 h-4 text-red-600 shrink-0" />
-                <span>Hassle-Free Fit Exchanges</span>
+                <Mail className="w-4 h-4 text-red-600 shrink-0" />
+                <span>Questions? Contact our merch team</span>
               </li>
             </ul>
           </div>
@@ -189,15 +159,15 @@ export const Footer: React.FC<FooterProps> = ({
           {/* Col 5: Helpdesk & Contact */}
           <div className="space-y-3">
             <div className="text-xs font-mono uppercase font-bold text-[#0f172a] tracking-wider">
-              Merch Concierge
+              Merch support
             </div>
             <p className="text-xs text-[#64748b] leading-relaxed">
-              Have questions regarding sizing, custom drop allocations, or an active order? Our concierge is on standby.
+              Questions about a product or an existing order? Email our merch team.
             </p>
             <div className="p-3 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-[11px] font-mono text-[#0f172a] space-y-1 shadow-xs">
               <span className="text-red-600 font-bold block">DIRECT EMAIL:</span>
               <a
-               href={`mailto:${STORE_CONTACT_EMAIL}`}
+                href={`mailto:${STORE_CONTACT_EMAIL}`}
                 className="text-[#0f172a] font-semibold hover:underline block break-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
               >
                 {STORE_CONTACT_EMAIL}
