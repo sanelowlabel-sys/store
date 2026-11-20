@@ -1182,4 +1182,33 @@ export {
   defaultWishlistCoordinator,
 } from './wishlist';
 
+import { defaultWishlistCoordinator as _defaultWishlistCoordinator } from './wishlist';
+import { createSessionVerificationCoordinator as _createSessionVerificationCoordinator } from './session';
+
+export {
+  type SessionVerificationStatus,
+  type SessionVerificationTrigger,
+  type SessionVerificationState,
+  type SessionStateListener,
+  type SessionVerificationDependencies,
+  type TabReturnTrackerOptions,
+  type CrossTabInvalidationReason,
+  type CrossTabInvalidationMessage,
+  type BrowserSessionSyncEnvironment,
+  SESSION_INVALIDATION_CHANNEL_NAME,
+  SESSION_INVALIDATION_STORAGE_KEY,
+  DEFAULT_REMOTE_LOGOUT_GRACE_MS,
+  createLogoutAttemptId,
+  SessionVerificationCoordinator,
+  createSessionVerificationCoordinator,
+  TabReturnTracker,
+  parseCrossTabInvalidationMessage,
+  broadcastCrossTabSessionInvalidation,
+  bindBrowserSessionSync,
+} from './session';
+
+export const defaultSessionCoordinator = _createSessionVerificationCoordinator({
+  fetchSession: fetchCustomerSession,
+  wishlistCoordinator: _defaultWishlistCoordinator,
+});
 
