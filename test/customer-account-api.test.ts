@@ -88,6 +88,19 @@ import {
 import React from 'react';
 import { WishlistDrawer } from '../src/components/WishlistDrawer';
 import { Navbar, resolveNavbarAccountDisplay, type HeaderSessionStatus } from '../src/components/Navbar';
+import {
+  CustomerDashboardAuthenticatedView,
+  CustomerDashboardController,
+  bindCustomerDashboardLifecycle,
+  createCustomerDashboardController,
+  filterLoadedOrders,
+  getOrderTrackingLinks,
+  type ControllerRefObject,
+  type CustomerDashboardAuthenticatedViewProps,
+  type DashboardApiDependencies,
+  type DashboardDataState,
+  type DashboardTab,
+} from '../src/components/CustomerDashboard';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 function createMockReqRes(options: {
@@ -4786,5 +4799,852 @@ test('Shopify Customer Account API & Custom Dashboard Specifications', async (t)
       'App.tsx must pass logout-guarded authoritative sessionStatus to Navbar'
     );
   });
+
+  await t.test('15. Modernized CustomerDashboard: State Transitions, Direct Orders Route, Accessibility, Truthful Filtering & Static Markup', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    const sampleOrderFulfilled: any = {
+      id: 'gid://shopify/Order/1001',
+      name: '#1001',
+      number: 1001,
+      processedAt: '2026-08-14T10:30:00Z',
+      financialStatus: 'PAID',
+      fulfillmentStatus: 'FULFILLED',
+      totalPrice: { amount: '125.00', currencyCode: 'USD' },
+      lineItems: [
+        {
+          id: 'li_1',
+          title: 'Heavyweight Tour Hoodie',
+          quantity: 1,
+          variantTitle: 'Black / L',
+          price: { amount: '125.00', currencyCode: 'USD' },
+        },
+      ],
+      fulfillments: [
+        {
+          id: 'ful_1',
+          status: 'SUCCESS',
+          latestShipmentStatus: 'IN_TRANSIT',
+          trackingInformation: [
+            {
+              company: 'DHL Express',
+              number: 'DHL-998877',
+              url: 'https://track.example/DHL-998877',
+            },
+          ],
+        },
+      ],
+    };
+
+    const sampleOrderUnfulfilled: any = {
+      id: 'gid://shopify/Order/1002',
+      name: '#1002',
+      number: 1002,
+      processedAt: '2026-08-20T15:00:00Z',
+      financialStatus: 'PAID',
+      fulfillmentStatus: 'UNFULFILLED',
+      totalPrice: { amount: '850.00', currencyCode: 'ZAR' },
+      lineItems: [
+        {
+          id: 'li_2',
+          title: 'Soundcheck Cap',
+          quantity: 2,
+          variantTitle: 'Red',
+          price: { amount: '425.00', currencyCode: 'ZAR' },
+        },
+      ],
+      fulfillments: [],
+    };
+
+    const sampleOrderOlderPage2: any = {
+      id: 'gid://shopify/Order/0900',
+      name: '#900',
+      number: 900,
+      processedAt: '2025-11-02T12:00:00Z',
+      financialStatus: 'PAID',
+      fulfillmentStatus: 'RESTOCKED',
+      totalPrice: { amount: '60.00', currencyCode: 'USD' },
+      lineItems: [
+        {
+          id: 'li_3',
+          title: 'Archive Longsleeve',
+          quantity: 1,
+          variantTitle: 'M',
+          price: { amount: '60.00', currencyCode: 'USD' },
+        },
+      ],
+      fulfillments: [],
+    };
+
+    const sampleSavedProduct: any = {
+      id: 'gid://shopify/Product/77',
+      shopifyId: 'gid://shopify/Product/77',
+      handle: 'studio-tee',
+      title: 'Studio Session Tee',
+      tagline: 'Heavy jersey tee',
+      category: 'graphic-tees',
+      dropCollection: 'Core Essentials',
+      sku: 'SNL-TEE-77',
+      priceAmount: 45,
+      currencyCode: 'USD',
+      priceUSD: 45,
+      compareAtPriceUSD: 45,
+      discountPercent: 0,
+      availableForSale: true,
+      totalVariantsCount: 3,
+      isPreOrder: false,
+      description: 'Studio tee',
+      features: [],
+      fabricSpecs: [],
+      sizingDetails: [],
+      sizes: ['M', 'L'],
+      colors: [],
+      images: ['/img/studio-tee.jpg'],
+      variants: [],
+      options: [],
+      tags: [],
+      reviews: [],
+    };
+
+    const sampleProfile: any = {
+      id: 'gid://shopify/Customer/42',
+      displayName: 'Sanelow Collector',
+      emailAddress: { emailAddress: 'collector@example.com' },
+      phoneNumber: null,
+      defaultAddress: null,
+      addresses: [],
+    };
+
+    const authSession: any = {
+      authenticated: true,
+      configured: true,
+      enabled: true,
+      customer: { id: 'gid://shopify/Customer/42', email: 'collector@example.com', name: 'Sanelow Collector' },
+      hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+    };
+
+    const baseProps: CustomerDashboardAuthenticatedViewProps = {
+      activeTab: 'overview',
+      selectedOrderId: null,
+      customerDisplayName: 'Sanelow Collector',
+      customerEmail: 'collector@example.com',
+      profile: sampleProfile,
+      orders: [sampleOrderFulfilled, sampleOrderUnfulfilled],
+      activeOrder: null,
+      isDataLoading: false,
+      isPaginating: false,
+      hasAttemptedOrdersLoad: true,
+      dataError: null,
+      isLoggingOut: false,
+      hasNextPage: false,
+      hasPrevPage: false,
+      startCursor: null,
+      endCursor: null,
+      orderSearch: '',
+      orderStatusFilter: 'all',
+      hostedUrl: 'https://shopify.com/79461089448/account',
+      currency: 'USD',
+      savedItems: [sampleSavedProduct],
+      isSavedItemsDisabled: false,
+      onSelectTab: () => {},
+      onSelectOrder: () => {},
+      onClearSelectedOrder: () => {},
+      onOrderSearchChange: () => {},
+      onOrderStatusFilterChange: () => {},
+      onResetOrderFilters: () => {},
+      onRefreshDashboard: () => {},
+      onLoadOrdersPage: () => {},
+      onNavigateHome: () => {},
+      onLogout: () => {},
+      onToggleSavedItem: () => {},
+      onAddToCartFromSaved: () => {},
+      onViewSavedProduct: () => {},
+      onRetrySession: () => {},
+    };
+
+    // ========================================================================
+    // PART A: ACTUAL STATE-TRANSITION TESTS (CustomerDashboardController)
+    // ========================================================================
+
+    // A.1 Direct /account/orders entry loads orders + pagination metadata + profile directly without duplicate dashboard call
+    {
+      let dashboardCalls = 0;
+      let ordersCalls = 0;
+      let profileCalls = 0;
+      let resolveOrders!: (val: any) => void;
+
+      const controller = createCustomerDashboardController(
+        {
+          fetchSession: async () => authSession,
+          fetchDashboardData: async () => {
+            dashboardCalls++;
+            return { profile: sampleProfile, orders: [] };
+          },
+          fetchOrdersList: async () => {
+            ordersCalls++;
+            return new Promise((res) => {
+              resolveOrders = res;
+            });
+          },
+          fetchProfileData: async () => {
+            profileCalls++;
+            return { profile: sampleProfile };
+          },
+        },
+        'orders'
+      );
+
+      const states: any[] = [];
+      controller.subscribe((s) => states.push(s));
+
+      const initPromise = controller.initialize('orders');
+      // Wait microtask tick so session resolves and orders request starts
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // While initial direct /account/orders request is in flight: no false empty state!
+      const inFlightState = controller.getState();
+      assert.equal(inFlightState.isSessionLoading, false);
+      assert.equal(inFlightState.isDataLoading, true, 'Initial orders load must set isDataLoading to prevent false empty state');
+      assert.equal(inFlightState.hasAttemptedOrdersLoad, false);
+      assert.equal(dashboardCalls, 0, 'Direct /account/orders entry must NOT call redundant fetchDashboardData');
+      assert.equal(ordersCalls, 1);
+      assert.equal(profileCalls, 1);
+
+      // Concurrent duplicate tab selection while in-flight must NOT fire a duplicate orders request
+      controller.selectTab('orders');
+      assert.equal(ordersCalls, 1, 'Selecting orders while initial load is in-flight must not duplicate request');
+
+      // Resolve paginated response
+      resolveOrders({
+        orders: [sampleOrderUnfulfilled, sampleOrderFulfilled],
+        pageInfo: {
+          hasNextPage: true,
+          hasPreviousPage: false,
+          startCursor: 'cursor_start_1',
+          endCursor: 'cursor_end_1',
+        },
+      });
+      await initPromise;
+
+      const settled = controller.getState();
+      assert.equal(settled.isDataLoading, false);
+      assert.equal(settled.isPaginating, false);
+      assert.equal(settled.hasAttemptedOrdersLoad, true);
+      assert.equal(settled.hasOrdersPagination, true);
+      assert.equal(settled.hasNextPage, true);
+      assert.equal(settled.endCursor, 'cursor_end_1');
+      assert.equal(settled.orders.length, 2);
+
+      // Subsequent tab switch to orders when pagination already loaded must not refetch automatically
+      controller.selectTab('overview');
+      controller.selectTab('orders');
+      assert.equal(ordersCalls, 1);
+      controller.dispose();
+    }
+
+    // A.2 Stale-response protection & retained-data refreshing during overlapping page requests
+    {
+      const pendingResolvers: Array<(val: any) => void> = [];
+      const controller = createCustomerDashboardController(
+        {
+          fetchSession: async () => authSession,
+          fetchDashboardData: async () => ({ profile: sampleProfile, orders: [sampleOrderFulfilled] }),
+          fetchOrdersList: async () =>
+            new Promise((res) => {
+              pendingResolvers.push(res);
+            }),
+          fetchProfileData: async () => ({ profile: sampleProfile }),
+        },
+        'overview'
+      );
+
+      await controller.initialize('overview');
+      assert.equal(controller.getState().orders.length, 1);
+      assert.equal(controller.getState().hasOrdersPagination, false);
+
+      // Start page 1 request -> retains existing orders and sets isPaginating=true
+      const p1 = controller.loadOrdersPage();
+      assert.equal(controller.getState().isPaginating, true);
+      assert.equal(controller.getState().orders.length, 1, 'Existing orders remain retained while refreshing');
+
+      // Start newer cursor request (e.g. next page) BEFORE p1 finishes
+      const p2 = controller.loadOrdersPage('cursor_p2', 'next');
+      assert.equal(pendingResolvers.length, 2);
+
+      // Resolve newer request FIRST
+      pendingResolvers[1]({
+        orders: [sampleOrderOlderPage2],
+        pageInfo: {
+          hasNextPage: false,
+          hasPreviousPage: true,
+          startCursor: 'cursor_p2_start',
+          endCursor: 'cursor_p2_end',
+        },
+      });
+      await p2;
+
+      assert.deepEqual(controller.getState().orders.map((o) => o.name), ['#900']);
+      assert.equal(controller.getState().hasPrevPage, true);
+      assert.equal(controller.getState().hasNextPage, false);
+      assert.equal(controller.getState().isPaginating, false);
+
+      // Now resolve STALE earlier request p1 with different data -> MUST be ignored!
+      pendingResolvers[0]({
+        orders: [sampleOrderFulfilled, sampleOrderUnfulfilled],
+        pageInfo: {
+          hasNextPage: true,
+          hasPreviousPage: false,
+          startCursor: 'stale_start',
+          endCursor: 'stale_end',
+        },
+      });
+      await p1;
+
+      assert.deepEqual(
+        controller.getState().orders.map((o) => o.name),
+        ['#900'],
+        'Stale order page response must NOT overwrite newer page orders'
+      );
+      assert.equal(controller.getState().hasPrevPage, true, 'Stale response must NOT overwrite pagination metadata');
+      controller.dispose();
+    }
+
+    // A.3 Identical in-flight deduplication and error-with-retained-orders preservation
+    {
+      let calls = 0;
+      let resolveOrderErr!: (val: any) => void;
+      const controller = createCustomerDashboardController(
+        {
+          fetchSession: async () => authSession,
+          fetchDashboardData: async () => ({ profile: sampleProfile, orders: [sampleOrderFulfilled] }),
+          fetchOrdersList: async () => {
+            calls++;
+            return new Promise((res) => {
+              resolveOrderErr = res;
+            });
+          },
+          fetchProfileData: async () => ({ profile: sampleProfile }),
+        },
+        'overview'
+      );
+
+      await controller.initialize('overview');
+      const reqA = controller.loadOrdersPage('cursor_x', 'next');
+      const reqB = controller.loadOrdersPage('cursor_x', 'next');
+      assert.equal(calls, 1, 'Identical concurrent orders page requests must deduplicate');
+
+      resolveOrderErr({
+        orders: [],
+        pageInfo: { hasNextPage: false, hasPreviousPage: false },
+        error: 'Rate limited by upstream',
+      });
+      await Promise.all([reqA, reqB]);
+
+      assert.equal(controller.getState().dataError, 'Rate limited by upstream');
+      assert.deepEqual(
+        controller.getState().orders.map((o) => o.name),
+        ['#1001'],
+        'Failed pagination refresh must preserve retained orders instead of wiping them'
+      );
+      controller.dispose();
+    }
+
+    // ========================================================================
+    // PART B: HELPER & STATIC-RENDER MARKUP ASSERTIONS (NOT LIVE BROWSER QA)
+    // ========================================================================
+
+    // B.1 Helper unit tests: filterLoadedOrders & getOrderTrackingLinks
+    {
+      const ordersMix = [sampleOrderFulfilled, sampleOrderUnfulfilled, sampleOrderOlderPage2];
+      const all = filterLoadedOrders(ordersMix, '', 'all');
+      assert.equal(all.length, 3);
+
+      const fulfilledOnly = filterLoadedOrders(ordersMix, '', 'fulfilled');
+      assert.deepEqual(fulfilledOnly.map((o) => o.name), ['#1001']);
+
+      const notFullyFulfilled = filterLoadedOrders(ordersMix, '', 'unfulfilled');
+      assert.deepEqual(notFullyFulfilled.map((o) => o.name), ['#1002', '#900']);
+
+      const byItem = filterLoadedOrders(ordersMix, 'soundcheck', 'all');
+      assert.deepEqual(byItem.map((o) => o.name), ['#1002']);
+
+      const byTracking = filterLoadedOrders(ordersMix, 'DHL-998877', 'all');
+      assert.deepEqual(byTracking.map((o) => o.name), ['#1001']);
+
+      const links1 = getOrderTrackingLinks(sampleOrderFulfilled);
+      assert.equal(links1.length, 1);
+      assert.equal(links1[0].url, 'https://track.example/DHL-998877');
+
+      const links2 = getOrderTrackingLinks(sampleOrderUnfulfilled);
+      assert.equal(links2.length, 0);
+    }
+
+    // B.2 Overview static markup: loaded-page accuracy even when hasPrevPage=true & hasNextPage=false
+    {
+      const overviewHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          orders: [sampleOrderOlderPage2],
+          hasPrevPage: true,
+          hasNextPage: false,
+        })
+      );
+
+      assert.ok(overviewHtml.includes('/sanelow-logo.jpg'), 'Preserves Sanelow brand logo');
+      assert.ok(overviewHtml.includes('Welcome back, Sanelow Collector'));
+      assert.ok(overviewHtml.includes('>View orders<'));
+      assert.ok(overviewHtml.includes('>Saved items<'));
+      assert.ok(overviewHtml.includes('>Profile<'));
+      assert.ok(overviewHtml.includes('>Shop merch<'));
+      assert.ok(overviewHtml.includes('Orders shown'));
+      assert.ok(overviewHtml.includes('Loaded on current page'), 'Always labels count as loaded-page scope');
+      assert.ok(overviewHtml.includes('First order on loaded page'), 'Must not label paginated order[0] as Latest order status');
+      assert.ok(!overviewHtml.includes('Latest order status'));
+      assert.ok(overviewHtml.includes('Orders on loaded page'));
+      assert.ok(overviewHtml.includes('Account help'));
+      assert.ok(overviewHtml.includes('https://shopify.com/79461089448/account'));
+      assert.ok(!overviewHtml.includes('Shopify Hosted Portal'), 'Removes large Shopify Hosted Portal sidebar card');
+      assert.ok(!overviewHtml.includes('Independent Payment &amp; Fulfillment'));
+      assert.ok(!overviewHtml.includes('Official Atelier Dispatch'));
+      assert.ok(!overviewHtml.includes('South Africa (ZA)'), 'Must not invent unverified destination country');
+      assert.ok(!overviewHtml.includes('Level-1 PCI Checkout'));
+      assert.ok(overviewHtml.includes('Sign out'));
+    }
+
+    // B.3 Direct /account/orders loading & refreshing static markup: no false empty state, retained orders visibly marked refreshing
+    {
+      const directLoadingHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'orders',
+          orders: [],
+          isDataLoading: true,
+          hasAttemptedOrdersLoad: false,
+        })
+      );
+      assert.ok(directLoadingHtml.includes('Loading your account details...'));
+      assert.ok(!directLoadingHtml.includes('No orders yet'), 'Loading state must NEVER render false empty state');
+
+      const refreshingRetainedHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'orders',
+          orders: [sampleOrderFulfilled],
+          isPaginating: true,
+          hasAttemptedOrdersLoad: true,
+        })
+      );
+      assert.ok(refreshingRetainedHtml.includes('Refreshing orders...'));
+      assert.ok(refreshingRetainedHtml.includes('#1001'), 'Retained orders stay visible while refreshing');
+    }
+
+    // B.4 Orders view static markup: search, truthful "Not fully fulfilled" filter, loaded-page disclosure, genuine tracking links
+    {
+      const ordersHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'orders',
+          hasNextPage: true,
+          endCursor: 'cursor_next',
+        })
+      );
+
+      assert.ok(ordersHtml.includes('Loaded-page view:'));
+      assert.ok(ordersHtml.includes('Showing 2 of 2 loaded orders on this page.'));
+      assert.ok(ordersHtml.includes('aria-label="Search loaded orders"'));
+      assert.ok(ordersHtml.includes('>All<'));
+      assert.ok(ordersHtml.includes('>Fulfilled<'));
+      assert.ok(ordersHtml.includes('>Not fully fulfilled<'));
+      assert.ok(!ordersHtml.includes('Unfulfilled / In progress'));
+      assert.ok(ordersHtml.includes('https://track.example/DHL-998877'));
+      assert.ok(ordersHtml.includes('Track DHL-998877'));
+      assert.ok(ordersHtml.includes('>Previous<'));
+      assert.ok(ordersHtml.includes('>Next<'));
+    }
+
+    // B.5 Error state with 0 orders: NEVER implies request succeeded with zero orders
+    {
+      const errorOverviewHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'overview',
+          orders: [],
+          dataError: 'Customer Account API timed out.',
+        })
+      );
+
+      assert.ok(errorOverviewHtml.includes('Unable to load orders'));
+      assert.ok(errorOverviewHtml.includes('Customer Account API timed out.'));
+      assert.ok(!errorOverviewHtml.includes('No orders yet'), 'Error state must NOT claim No orders yet');
+      assert.ok(!errorOverviewHtml.includes('No order history found'), 'Error state must NOT claim No order history found');
+
+      const errorOrdersHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'orders',
+          orders: [],
+          dataError: 'HTTP 502 from upstream.',
+        })
+      );
+      assert.ok(errorOrdersHtml.includes('Unable to load orders'));
+      assert.ok(!errorOrdersHtml.includes('No orders yet'));
+    }
+
+    // B.6 Saved items view: unresolved dash heading ("Saved items (—)"), browser-local disclosure, and keyboard-accessible links/buttons
+    {
+      const savedHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'saved',
+        })
+      );
+      assert.ok(savedHtml.includes('Saved items (1)'));
+      assert.ok(savedHtml.includes('Saved in this browser on this device only'));
+      assert.ok(savedHtml.includes('not synced across devices'));
+      assert.ok(savedHtml.includes('href="/products/studio-tee"'), 'Product image/title use real focusable anchor links');
+      assert.ok(savedHtml.includes('aria-label="View Studio Session Tee"'));
+      assert.ok(savedHtml.includes('Studio Session Tee</a>'));
+      assert.ok(savedHtml.includes('Select options'));
+
+      // Product without handle falls back to semantic <button type="button"> for keyboard navigation
+      const noHandleHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'saved',
+          savedItems: [{ ...sampleSavedProduct, handle: '' }],
+        })
+      );
+      assert.ok(noHandleHtml.includes('<button type="button" aria-label="View Studio Session Tee"'));
+
+      const disabledSavedHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'saved',
+          isSavedItemsDisabled: true,
+        })
+      );
+      assert.ok(disabledSavedHtml.includes('Saved items (—)'), 'Unresolved heading uses dash rather than 0');
+      assert.ok(!disabledSavedHtml.includes('Saved items (0)'));
+      assert.ok(disabledSavedHtml.includes('Session Unresolved'));
+      assert.ok(disabledSavedHtml.includes('Retry Verification'));
+      assert.ok(!disabledSavedHtml.includes('Studio Session Tee'), 'Disabled saved items view must hide wishlist items');
+    }
+
+    // B.7 Order detail preserves required neutral tracking copy
+    {
+      const detailHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'order-detail',
+          selectedOrderId: sampleOrderUnfulfilled.id,
+          activeOrder: sampleOrderUnfulfilled,
+        })
+      );
+      assert.ok(detailHtml.includes('No tracking information is available for this order yet.'));
+    }
+
+    // B.8 Profile view is read-only, shows saved addresses if returned, and omits decorative protection claim
+    {
+      const profileHtml = renderToStaticMarkup(
+        React.createElement(CustomerDashboardAuthenticatedView, {
+          ...baseProps,
+          activeTab: 'profile',
+          profile: {
+            id: 'gid://shopify/Customer/42',
+            displayName: 'Sanelow Collector',
+            emailAddress: { emailAddress: 'collector@example.com' },
+            phoneNumber: { phoneNumber: '+27820000000' },
+            defaultAddress: {
+              id: 'addr_1',
+              formatted: ['12 Bree St', 'Cape Town', 'South Africa'],
+            },
+            addresses: [
+              {
+                id: 'addr_1',
+                formatted: ['12 Bree St', 'Cape Town', 'South Africa'],
+              },
+              {
+                id: 'addr_2',
+                formatted: ['99 Long St', 'Cape Town', 'South Africa'],
+              },
+            ],
+          },
+        })
+      );
+      assert.ok(profileHtml.includes('12 Bree St'));
+      assert.ok(profileHtml.includes('99 Long St'));
+      assert.ok(profileHtml.includes('Additional saved addresses (1)'));
+      assert.ok(!profileHtml.includes('Customer Account Profile Protection'));
+      assert.ok(!profileHtml.includes('<input'), 'Read-only profile must not include editable inputs');
+    }
+
+    // B.9 App.tsx wiring & logout/session safeguard source checks
+    {
+      const appSource = fs.readFileSync(path.resolve('./src/App.tsx'), 'utf-8');
+      assert.match(appSource, /savedItems=\{wishlist\}/);
+      assert.match(appSource, /isSavedItemsDisabled=\{isWishlistDisabled\}/);
+      assert.match(appSource, /onToggleSavedItem=\{handleToggleWishlist\}/);
+      assert.match(appSource, /onAddToCartFromSaved=\{\(prod\) => setSelectedProduct\(prod\)\}/);
+
+      const dashboardSource = fs.readFileSync(path.resolve('./src/components/CustomerDashboard.tsx'), 'utf-8');
+      assert.match(dashboardSource, /Signing Out Securely\.\.\./);
+      assert.match(dashboardSource, /Sign Out Incomplete/);
+      assert.match(dashboardSource, /handleResumeSession/);
+    }
+  });
+
+  await t.test('16. CustomerDashboard StrictMode Controller Lifecycle: Setup -> Cleanup -> Setup, Delayed First-Instance Responses, Route Sync & Unmount Cleanup', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    const authSession1: any = {
+      authenticated: true,
+      configured: true,
+      enabled: true,
+      customer: { id: 'gid://shopify/Customer/1', email: 'first@example.com', name: 'First Instance Customer' },
+      hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+    };
+    const authSession2: any = {
+      authenticated: true,
+      configured: true,
+      enabled: true,
+      customer: { id: 'gid://shopify/Customer/2', email: 'second@example.com', name: 'Active Customer' },
+      hostedFallbackUrl: 'https://shopify.com/79461089448/account',
+    };
+    const sampleProfile2: any = {
+      id: 'gid://shopify/Customer/2',
+      displayName: 'Active Customer',
+      emailAddress: { emailAddress: 'second@example.com' },
+      phoneNumber: null,
+      defaultAddress: null,
+      addresses: [],
+    };
+    const sampleOrderPage1: any = {
+      id: 'gid://shopify/Order/2001',
+      name: '#2001',
+      number: 2001,
+      processedAt: '2026-09-01T12:00:00Z',
+      financialStatus: 'PAID',
+      fulfillmentStatus: 'FULFILLED',
+      totalPrice: { amount: '95.00', currencyCode: 'USD' },
+      lineItems: [{ id: 'li_2001', title: 'Tour Poster', quantity: 1, variantTitle: 'Standard', price: { amount: '95.00', currencyCode: 'USD' } }],
+      fulfillments: [],
+    };
+    const sampleOrderPage2: any = {
+      id: 'gid://shopify/Order/2002',
+      name: '#2002',
+      number: 2002,
+      processedAt: '2026-08-10T12:00:00Z',
+      financialStatus: 'PAID',
+      fulfillmentStatus: 'UNFULFILLED',
+      totalPrice: { amount: '150.00', currencyCode: 'USD' },
+      lineItems: [{ id: 'li_2002', title: 'Box Logo Hoodie', quantity: 1, variantTitle: 'L', price: { amount: '150.00', currencyCode: 'USD' } }],
+      fulfillments: [],
+    };
+
+    const flushMicrotasks = async () => {
+      for (let i = 0; i < 6; i++) {
+        await Promise.resolve();
+      }
+    };
+
+    // NOTE: These are controller & lifecycle binding simulations calling production
+    // `bindCustomerDashboardLifecycle` and `CustomerDashboardController` directly.
+    // Mounted browser React DOM <StrictMode> rendering was not executed here.
+
+    // 16.1 Setup -> Cleanup -> Setup creates a fresh controller, ignores delayed first-instance responses,
+    // and routes subsequent route changes + UI actions exclusively to the replacement controller.
+    {
+      const sessionResolvers: Array<(val: any) => void> = [];
+      const dashboardResolvers: Array<(val: any) => void> = [];
+      const ordersResolvers: Array<(val: any) => void> = [];
+
+      const deps: DashboardApiDependencies = {
+        fetchSession: () => new Promise((res) => sessionResolvers.push(res)),
+        fetchDashboardData: () => new Promise((res) => dashboardResolvers.push(res)),
+        fetchOrdersList: () => new Promise((res) => ordersResolvers.push(res)),
+        fetchProfileData: async () => ({ profile: sampleProfile2 }),
+      };
+
+      const controllerRef: ControllerRefObject<CustomerDashboardController> = { current: null };
+      let route: { initialTab: DashboardTab; initialOrderId?: string } = { initialTab: 'overview' };
+      const publishedStates: DashboardDataState[] = [];
+
+      // Setup 1 (StrictMode initial mount effect)
+      const cleanup1 = bindCustomerDashboardLifecycle({
+        controllerRef,
+        deps,
+        getRoute: () => route,
+        onStateChange: (next) => publishedStates.push(next),
+      });
+
+      const controller1 = controllerRef.current;
+      assert.ok(controller1, 'Setup 1 assigns controller1 to controllerRef.current');
+      assert.equal(controller1.isDisposed(), false);
+      assert.equal(sessionResolvers.length, 1, 'Setup 1 initiates first fetchSession');
+
+      // Cleanup 1 (StrictMode simulated unmount cleanup)
+      cleanup1();
+      assert.equal(controller1.isDisposed(), true, 'Cleanup 1 disposes controller1 permanently');
+      assert.equal(controllerRef.current, null, 'Cleanup 1 clears controllerRef.current when it owns the ref');
+
+      // Setup 2 (StrictMode remount effect)
+      const publishedBeforeSetup2 = publishedStates.length;
+      const cleanup2 = bindCustomerDashboardLifecycle({
+        controllerRef,
+        deps,
+        getRoute: () => route,
+        onStateChange: (next) => publishedStates.push(next),
+      });
+
+      const controller2 = controllerRef.current;
+      assert.ok(controller2, 'Setup 2 assigns replacement controller2');
+      assert.notEqual(controller2, controller1, 'Setup 2 must create a fresh controller, never reusing disposed controller1');
+      assert.equal(controller2.isDisposed(), false, 'Fresh replacement controller starts active (not disposed)');
+      assert.equal(sessionResolvers.length, 2, 'Setup 2 initiates a fresh fetchSession');
+      assert.ok(publishedStates.length > publishedBeforeSetup2, 'Setup 2 publishes clean initial state to React state');
+
+      // Resolve DELAYED first-instance fetchSession while controller2 is active!
+      const publishedBeforeStaleResolve = publishedStates.length;
+      sessionResolvers[0](authSession1);
+      await flushMicrotasks();
+
+      assert.equal(controller1.isDisposed(), true, 'Disposed controller1 stays disposed');
+      assert.equal(controller1.getState().session, null, 'Disposed controller1 ignores late fetchSession resolution');
+      assert.equal(dashboardResolvers.length, 0, 'Disposed controller1 must NOT start fetchDashboardData after late session resolution');
+      assert.equal(publishedStates.length, publishedBeforeStaleResolve, 'Delayed controller1 response must NEVER notify React listener');
+      assert.equal(controllerRef.current, controller2, 'controllerRef.current remains replacement controller2');
+
+      // Resolve replacement controller2 session + dashboard data
+      sessionResolvers[1](authSession2);
+      await flushMicrotasks();
+      assert.equal(dashboardResolvers.length, 1, 'Replacement controller2 starts fetchDashboardData');
+
+      dashboardResolvers[0]({ profile: sampleProfile2, orders: [sampleOrderPage1] });
+      await flushMicrotasks();
+
+      const latestState = publishedStates[publishedStates.length - 1];
+      assert.equal(latestState.isSessionLoading, false);
+      assert.equal(latestState.session?.customer?.email, 'second@example.com');
+      assert.equal(latestState.profile?.displayName, 'Active Customer');
+      assert.deepEqual(latestState.orders.map((o) => o.name), ['#2001']);
+
+      // Route change after setup -> cleanup -> setup reaches replacement controller2
+      route = { initialTab: 'orders' };
+      controllerRef.current?.syncRouteProps(route.initialTab, route.initialOrderId);
+      assert.equal(controller1.getState().activeTab, 'overview', 'Controller1 stays frozen after disposal');
+      assert.equal(controller2.getState().activeTab, 'orders', 'Replacement controller2 receives route sync');
+      assert.equal(ordersResolvers.length, 1, 'Route sync to orders loads paginated orders on controller2');
+
+      ordersResolvers[0]({
+        orders: [sampleOrderPage1, sampleOrderPage2],
+        pageInfo: { hasNextPage: true, hasPreviousPage: false, startCursor: 's1', endCursor: 'e1' },
+      });
+      await flushMicrotasks();
+
+      assert.deepEqual(
+        publishedStates[publishedStates.length - 1].orders.map((o) => o.name),
+        ['#2001', '#2002']
+      );
+
+      // UI actions (selectOrder, clearSelectedOrder, selectTab, loadDashboard) reach controller2
+      controllerRef.current?.selectOrder(sampleOrderPage2.id);
+      assert.equal(publishedStates[publishedStates.length - 1].activeTab, 'order-detail');
+      assert.equal(publishedStates[publishedStates.length - 1].selectedOrderId, sampleOrderPage2.id);
+
+      controllerRef.current?.clearSelectedOrder();
+      assert.equal(publishedStates[publishedStates.length - 1].activeTab, 'orders');
+      assert.equal(publishedStates[publishedStates.length - 1].selectedOrderId, null);
+
+      controllerRef.current?.selectTab('profile');
+      assert.equal(publishedStates[publishedStates.length - 1].activeTab, 'profile');
+
+      // Delayed error or mutation on disposed controller1 still ignored
+      controller1.selectTab('saved');
+      assert.equal(controller1.getState().activeTab, 'overview');
+      assert.equal(publishedStates[publishedStates.length - 1].activeTab, 'profile');
+
+      // Normal unmount cleanup2 disposes controller2 and clears controllerRef.current
+      cleanup2();
+      assert.equal(controller2.isDisposed(), true, 'Normal unmount disposes active replacement controller');
+      assert.equal(controllerRef.current, null, 'Normal unmount clears controllerRef.current');
+    }
+
+    // 16.2 Out-of-order / stale cleanup must NOT clear a newer active controllerRef.current,
+    // and route sync during in-flight fetchSession steers initialization to the synced tab.
+    {
+      const sessionResolvers: Array<(val: any) => void> = [];
+      let ordersCalls = 0;
+      let dashboardCalls = 0;
+
+      const deps: DashboardApiDependencies = {
+        fetchSession: () => new Promise((res) => sessionResolvers.push(res)),
+        fetchDashboardData: async () => {
+          dashboardCalls++;
+          return { profile: sampleProfile2, orders: [sampleOrderPage1] };
+        },
+        fetchOrdersList: async () => {
+          ordersCalls++;
+          return {
+            orders: [sampleOrderPage1],
+            pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+          };
+        },
+        fetchProfileData: async () => ({ profile: sampleProfile2 }),
+      };
+
+      const controllerRef: ControllerRefObject<CustomerDashboardController> = { current: null };
+      const publishedStates: DashboardDataState[] = [];
+
+      const cleanupFirst = bindCustomerDashboardLifecycle({
+        controllerRef,
+        deps,
+        getRoute: () => ({ initialTab: 'overview' }),
+        onStateChange: (s) => publishedStates.push(s),
+      });
+      const first = controllerRef.current!;
+
+      const cleanupSecond = bindCustomerDashboardLifecycle({
+        controllerRef,
+        deps,
+        getRoute: () => ({ initialTab: 'overview' }),
+        onStateChange: (s) => publishedStates.push(s),
+      });
+      const second = controllerRef.current!;
+
+      // Even if cleanupFirst runs AFTER cleanupSecond took ownership of controllerRef.current,
+      // it only disposes `first` and leaves `controllerRef.current === second`.
+      cleanupFirst();
+      assert.equal(first.isDisposed(), true);
+      assert.equal(second.isDisposed(), false);
+      assert.equal(controllerRef.current, second, 'Stale cleanup must NEVER null out a newer active controllerRef');
+
+      // Route prop changes to 'orders' before fetchSession resolves
+      controllerRef.current?.syncRouteProps('orders');
+      sessionResolvers[1](authSession2);
+      await flushMicrotasks();
+
+      assert.equal(ordersCalls, 1, 'Pending route sync steers in-flight initialization to load orders directly');
+      assert.equal(dashboardCalls, 0, 'Should not run redundant overview dashboard call after route synced to orders');
+
+      cleanupSecond();
+      assert.equal(second.isDisposed(), true);
+      assert.equal(controllerRef.current, null);
+    }
+
+    // 16.3 Production source wiring verification: CustomerDashboard creates controller inside effect via bindCustomerDashboardLifecycle
+    {
+      const dashboardSource = fs.readFileSync(path.resolve('./src/components/CustomerDashboard.tsx'), 'utf-8');
+      assert.match(dashboardSource, /bindCustomerDashboardLifecycle\(\{/);
+      assert.doesNotMatch(
+        dashboardSource,
+        /if\s*\(!controllerRef\.current\)\s*\{\s*controllerRef\.current\s*=\s*createCustomerDashboardController/,
+        'Must not lazily create controllerRef singleton during render'
+      );
+    }
+  });
 });
+
 
