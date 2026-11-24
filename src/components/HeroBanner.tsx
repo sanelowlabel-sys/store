@@ -28,7 +28,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#f8fafc] border border-[#e2e8f0] text-xs font-mono text-[#0f172a] shadow-xs">
               <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
               <span className="text-red-600 font-bold uppercase tracking-wider">
-                OFFICIAL SANELOW STOREFRONT
+                SANELOW MUSIC GROUP MERCH
               </span>
               <span className="text-[#64748b]">|</span>
               <span className="text-[#64748b] font-medium">SOUTH AFRICA</span>
@@ -37,13 +37,13 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
             {/* Headline */}
             <div className="space-y-3">
               <h1 className="text-3xl sm:text-5xl lg:text-6xl font-heading font-extrabold tracking-tight text-[#0f172a] leading-[1.08]">
-                Heavyweight Boxy Fits & <br />
+                Music-inspired apparel &amp; <br />
                 <span className="text-red-600">
-                  Exclusive Merch Drops.
+                  Sanelow accessories.
                 </span>
               </h1>
               <p className="text-sm sm:text-base text-[#64748b] max-w-xl leading-relaxed">
-                Premium streetwear essentials engineered with custom-milled heavyweight fabrics, vintage washes, and structural relaxed silhouettes. Connected directly to our official Shopify store with verified nationwide and global delivery.
+                Explore graphic tops, layers, and accessories from Sanelow. View each product’s available sizes, colours, and details to find your next favourite.
               </p>
             </div>
 
@@ -54,7 +54,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                 onClick={onScrollToCatalog}
                 className="px-6 py-3.5 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold tracking-wider uppercase transition-all shadow-xs hover:shadow-md flex items-center gap-2 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none"
               >
-                <span>Explore The Merch Drop</span>
+                <span>Explore the collection</span>
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform motion-reduce:transform-none" />
               </button>
 
@@ -72,15 +72,15 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
             <div className="pt-4 border-t border-[#e2e8f0] grid grid-cols-1 min-[480px]:grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 text-xs font-mono text-[#64748b]">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Shopify Verified Checkout</span>
+                <span>Browse the collection</span>
               </div>
               <div className="flex items-center gap-2">
                 <Truck className="w-4 h-4 text-red-600 shrink-0" />
-                <span>South Africa Delivery</span>
+                <span>Delivery options at checkout</span>
               </div>
               <div className="flex items-center gap-2 min-[480px]:col-span-2 sm:col-span-1">
                 <span className="w-2 h-2 rounded-full bg-[#0f172a] shrink-0" />
-                <span>PCI-DSS Level 1 Security</span>
+                <span>View product details</span>
               </div>
             </div>
           </div>
@@ -167,7 +167,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                     Sanelow Merch Storefront
                   </h3>
                   <p className="text-xs text-[#64748b] mt-1 max-w-xs mx-auto leading-relaxed">
-                    Live catalogue syncing with Shopify Storefront API. Products update automatically as inventory changes.
+                    Explore the catalogue for available apparel and accessories.
                   </p>
                 </div>
                 <button
