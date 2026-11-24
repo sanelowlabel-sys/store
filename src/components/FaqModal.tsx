@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, HelpCircle, Truck, ShieldCheck, RefreshCw, Shirt, CreditCard } from 'lucide-react';
+import { STORE_CONTACT_EMAIL } from '../lib/shopify';
 
 interface FaqModalProps {
   isOpen: boolean;
@@ -12,28 +13,28 @@ export const FaqModal: React.FC<FaqModalProps> = ({ isOpen, onClose, onOpenTrack
 
   const faqs = [
     {
-      q: 'How does apparel sizing run across drops?',
-      a: 'All our hoodies and crewnecks feature an oversized streetwear silhouette crafted from 450–500 GSM French Terry cotton with dropped shoulders. If you prefer a tailored/standard fit, we recommend ordering one size down. Tees run true to standard US streetwear sizing with a relaxed boxy drape.',
+      q: 'How do I choose a size?',
+      a: `Check the individual product page for available sizes and any sizing information provided. If you need help before ordering, contact ${STORE_CONTACT_EMAIL}.`,
       icon: Shirt,
     },
     {
-      q: 'Where do you ship and what are courier timelines?',
-      a: 'We ship to over 85 countries worldwide with direct air express freight. Drop orders and pre-orders are processed within 24 hours. Standard Tracked Air takes 5-7 business days, and Priority Air Express arrives in 3-5 business days with full door-to-door tracking checkpoints.',
+      q: 'Where can I check delivery options?',
+      a: 'Enter your delivery address at checkout to review the available delivery options, charges, and any displayed estimates before paying.',
       icon: Truck,
     },
     {
-      q: 'How do I wash and preserve vintage-washed merch?',
-      a: 'To maintain the custom pigment wash, high-density screen prints, and heavy hand-feel, machine wash cold inside out with like colors. Hang dry or tumble dry low. Do not iron directly on puff print or chenille embroidery patches.',
+      q: 'Where can I find care instructions?',
+      a: `Follow the care label supplied with your item and any product-specific care instructions. For questions about a particular item, contact ${STORE_CONTACT_EMAIL}.`,
       icon: RefreshCw,
     },
     {
-      q: 'What is your 30-Day Authentic Fit & Quality Guarantee?',
-      a: 'Every apparel piece is backed by our 30-Day Fit Guarantee. If the sizing is not optimal or you want to exchange for another variant, our concierge provides free prepaid exchange shipping labels.',
+      q: 'Who can I contact about an order issue?',
+      a: `For questions about your order or an item you received, contact ${STORE_CONTACT_EMAIL}. Include your order number, but do not send payment-card details or passwords.`,
       icon: ShieldCheck,
     },
     {
-      q: 'What payment options are supported?',
-      a: 'All available payment options (including credit/debit cards, digital wallets, or local payment methods) are provided securely through Shopify checkout based on the payment gateways configured for sx71id-uy.myshopify.com.',
+      q: 'Which payment methods can I use?',
+      a: 'Review the payment methods offered at checkout before placing your order.',
       icon: CreditCard,
     },
   ];
@@ -63,7 +64,7 @@ export const FaqModal: React.FC<FaqModalProps> = ({ isOpen, onClose, onOpenTrack
               Merch Sizing & Order FAQ
             </h3>
             <p className="text-xs text-[#64748b]">
-              Essential details regarding heavyweight fabrics, drop schedules, sizing & express logistics.
+              Help with product information, sizing questions, and your order.
             </p>
           </div>
         </div>
@@ -84,7 +85,7 @@ export const FaqModal: React.FC<FaqModalProps> = ({ isOpen, onClose, onOpenTrack
         </div>
 
         <div className="mt-6 pt-4 border-t border-[#e2e8f0] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono text-[#64748b]">
-          <span>Looking for live drop tracking checkpoints?</span>
+          <span>Need to check an order?</span>
           <button
             type="button"
             onClick={() => {
