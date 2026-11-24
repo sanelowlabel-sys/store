@@ -25,6 +25,69 @@ import {
   createCheckoutPreparationController,
 } from '../lib/checkout-prep';
 
+interface MoneyValue {
+  amount?: string | number | null;
+  currencyCode?: string | null;
+}
+
+interface ParsedMoney {
+  formatted: string;
+  currencyCode: string;
+  normalizedDecimal: string;
+}
+
+function normalizeDecimalString(raw: string): string {
+  const [intPartRaw, fracPartRaw = ''] = raw.split('.');
+  const intPart = intPartRaw.replace(/^0+(?=\d)/, '') || '0';
+  const fracPart = fracPartRaw.replace(/0+$/, '');
+  return fracPart ? `${intPart}.${fracPart}` : intPart;
+}
+
+const SUPPORTED_CURRENCIES: Set<string> | null =
+  typeof (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf === 'function'
+    ? new Set(
+        (Intl as { supportedValuesOf: (key: string) => string[] })
+          .supportedValuesOf('currency')
+          .map((code) => code.toUpperCase())
+      )
+    : null;
+
+function parseCartMoney(money: MoneyValue | null | undefined): ParsedMoney | null {
+  if (!money || typeof money !== 'object') return null;
+
+  const rawCurrency =
+    typeof money.currencyCode === 'string' ? money.currencyCode.trim().toUpperCase() : '';
+  if (!/^[A-Z]{3}$/.test(rawCurrency)) {
+    return null;
+  }
+  if (SUPPORTED_CURRENCIES && !SUPPORTED_CURRENCIES.has(rawCurrency)) {
+    return null;
+  }
+
+  let amountStr = '';
+  let numericAmount = NaN;
+
+  if (typeof money.amount === 'number') {
+    if (!Number.isFinite(money.amount) || money.amount < 0) return null;
+    numericAmount = money.amount;
+    amountStr = money.amount.toString();
+  } else if (typeof money.amount === 'string') {
+    const trimmed = money.amount.trim();
+    if (!/^(?:\d+\.?\d*|\.\d+)$/.test(trimmed)) return null;
+    numericAmount = Number(trimmed);
+    if (!Number.isFinite(numericAmount) || numericAmount < 0) return null;
+    amountStr = trimmed;
+  } else {
+    return null;
+  }
+
+  return {
+    formatted: formatPrice(numericAmount, rawCurrency),
+    currencyCode: rawCurrency,
+    normalizedDecimal: normalizeDecimalString(amountStr),
+  };
+}
+
 interface CartDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -116,15 +179,23 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const lines = cart?.lines || [];
   const totalQuantity = cart?.totalQuantity || 0;
-  const currencyCode = cart?.cost?.totalAmount?.currencyCode || 'USD';
+  const headerCurrencyCode =
+    (
+      cart?.cost?.totalAmount?.currencyCode ||
+      cart?.cost?.subtotalAmount?.currencyCode ||
+      'USD'
+    )
+      .trim()
+      .toUpperCase() || 'USD';
 
-  const subtotalAmount = cart?.cost?.subtotalAmount?.amount
-    ? parseFloat(cart.cost.subtotalAmount.amount)
-    : 0;
-
-  const totalAmount = cart?.cost?.totalAmount?.amount
-    ? parseFloat(cart.cost.totalAmount.amount)
-    : subtotalAmount;
+  const subtotalMoney = parseCartMoney(cart?.cost?.subtotalAmount);
+  const totalMoney = parseCartMoney(cart?.cost?.totalAmount);
+  const hasSameCurrencyEstimateDifference = Boolean(
+    subtotalMoney &&
+      totalMoney &&
+      subtotalMoney.currencyCode === totalMoney.currencyCode &&
+      subtotalMoney.normalizedDecimal !== totalMoney.normalizedDecimal
+  );
 
   const discountCodes = cart?.discountCodes || [];
   const applicableCodes = discountCodes.filter((d) => d.applicable);
@@ -221,7 +292,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             <span>Your merchandise bag</span>
           </span>
           <span className="text-[11px] font-bold text-red-600 uppercase">
-            {currencyCode} Context
+            {headerCurrencyCode} Context
           </span>
         </div>
 
@@ -264,8 +335,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             lines.map((line) => {
               const merchandise = line.merchandise;
               const product = merchandise.product;
-              const unitPrice = parseFloat(merchandise.price.amount);
-              const lineTotal = parseFloat(line.cost.totalAmount.amount);
+              const unitMoney = parseCartMoney(merchandise?.price);
+              const lineTotalMoney = parseCartMoney(line.cost?.totalAmount);
               const imageUrl =
                 merchandise.image?.url ||
                 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?auto=format&fit=crop&w=400&q=80';
@@ -346,11 +417,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                       <div className="text-right">
                         <div className="text-xs font-mono font-bold text-red-600">
-                          {formatPrice(lineTotal, currencyCode)}
+                          {lineTotalMoney ? lineTotalMoney.formatted : 'Unavailable'}
                         </div>
                         {line.quantity > 1 && (
                           <div className="text-[10px] font-mono text-[#64748b]">
-                            {formatPrice(unitPrice, currencyCode)} each
+                            {unitMoney ? `${unitMoney.formatted} each` : 'Unavailable'}
                           </div>
                         )}
                       </div>
@@ -410,21 +481,28 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
             {/* Calculations from Shopify Cart */}
             <div className="space-y-1.5 text-xs font-mono text-[#64748b] pt-1">
-              <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span className="text-[#0f172a] font-semibold">
-                  {formatPrice(subtotalAmount, currencyCode)}
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="shrink-0">Subtotal</span>
+                <span className="text-[#0f172a] font-semibold text-right break-words">
+                  {subtotalMoney ? subtotalMoney.formatted : 'Unavailable'}
                 </span>
               </div>
-              <div className="flex justify-between text-[#64748b]">
-                <span>Shipping & Taxes</span>
-                <span className="italic">Calculated at Shopify checkout</span>
-              </div>
-              <div className="flex justify-between text-sm font-bold text-[#0f172a] pt-2 border-t border-[#e2e8f0]">
-                <span>Estimated Total</span>
-                <span className="text-base font-mono font-bold text-red-600">
-                  {formatPrice(totalAmount, currencyCode)}
+              <p className="w-full text-[11px] leading-relaxed text-[#64748b] whitespace-normal break-words">
+                Review shipping, taxes, discounts, and the final amount at checkout.
+              </p>
+              <div className="flex items-baseline justify-between gap-2 text-sm font-bold text-[#0f172a] pt-2 border-t border-[#e2e8f0]">
+                <span className="shrink-0">Estimated Total</span>
+                <span className="text-base font-mono font-bold text-red-600 text-right break-words">
+                  {totalMoney ? totalMoney.formatted : 'Unavailable'}
                 </span>
+              </div>
+              <div className="space-y-1 w-full text-[11px] leading-relaxed text-[#64748b] whitespace-normal break-words">
+                <p>This estimate reflects the current cart and may change at checkout.</p>
+                {hasSameCurrencyEstimateDifference && (
+                  <p>
+                    The current estimate differs from the subtotal. Review the breakdown at checkout.
+                  </p>
+                )}
               </div>
             </div>
 
