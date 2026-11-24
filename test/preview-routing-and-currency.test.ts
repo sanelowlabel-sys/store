@@ -1377,7 +1377,8 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     for (const html of [withProductHtml, withoutProductHtml]) {
       assert.ok(html.includes('SANELOW MUSIC GROUP MERCH'));
       assert.ok(html.includes('SOUTH AFRICA'));
-      assert.ok(html.includes('Music-inspired apparel &amp;'));
+      assert.ok(html.includes('Music-inspired style.'));
+      assert.ok(!html.includes('Music-inspired apparel &amp;'));
       assert.ok(html.includes('<br/>'));
       assert.ok(html.includes('Sanelow accessories.'));
       assert.ok(
