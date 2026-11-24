@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Trash2,
@@ -18,19 +18,26 @@ import {
   formatPrice,
   isEmbeddedPreview,
   getShopifyCart,
-  getOrCreateShopifyCart,
 } from '../lib/shopify';
+import {
+  CheckoutPreparationController,
+  CheckoutPrepState,
+  createCheckoutPreparationController,
+} from '../lib/checkout-prep';
 
 interface CartDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   cart: ShopifyCart | null;
   isLoading: boolean;
+  cartMutationEpoch?: number;
+  lastRefreshCommitToken?: number | null;
+  getIsMutationPending?: () => boolean;
   onUpdateQuantity: (lineId: string, quantity: number) => void;
   onRemoveItem: (lineId: string) => void;
   onApplyDiscount: (code: string) => Promise<{ success: boolean; message?: string }>;
   onBrowseProducts: () => void;
-  onRevalidateCart?: () => Promise<ShopifyCart | null>;
+  onRevalidateCart?: (refreshToken?: number) => Promise<ShopifyCart | null>;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -38,26 +45,74 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onClose,
   cart,
   isLoading,
+  cartMutationEpoch = 0,
+  lastRefreshCommitToken = null,
+  getIsMutationPending,
   onUpdateQuantity,
   onRemoveItem,
   onApplyDiscount,
   onBrowseProducts,
   onRevalidateCart,
 }) => {
-  if (!isOpen) return null;
-
   const [promoInput, setPromoInput] = useState('');
   const [promoError, setPromoError] = useState('');
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
-  const [isRevalidating, setIsRevalidating] = useState(false);
-  const [revalidationError, setRevalidationError] = useState<string | null>(null);
-  const [verifiedCheckoutUrl, setVerifiedCheckoutUrl] = useState<string | null>(null);
 
-  // Invalidate any prepared checkout URL if cart content changes
+  const controllerRef = useRef<CheckoutPreparationController | null>(null);
+  if (!controllerRef.current) {
+    controllerRef.current = createCheckoutPreparationController({
+      initialIsOpen: isOpen,
+      initialCart: cart,
+      initialIsMutationPending: isLoading,
+      initialMutationEpoch: cartMutationEpoch,
+    });
+  }
+
+  const [prepState, setPrepState] = useState<CheckoutPrepState>(() =>
+    controllerRef.current!.getState()
+  );
+
   useEffect(() => {
-    setVerifiedCheckoutUrl(null);
-    setRevalidationError(null);
-  }, [cart?.id, cart?.totalQuantity, cart?.lines?.length]);
+    const controller = controllerRef.current;
+    if (!controller) return;
+    controller.mount();
+    const unsubscribe = controller.subscribe(setPrepState);
+    return () => {
+      unsubscribe();
+      controller.unmount();
+    };
+  }, []);
+
+  // Synchronize drawer open state, comprehensive cart fingerprint, mutation epoch, and correlated refresh commits
+  useEffect(() => {
+    controllerRef.current?.syncContext({
+      isOpen,
+      cart,
+      isMutationPending: isLoading || isApplyingPromo,
+      mutationEpoch: cartMutationEpoch,
+      refreshCommitToken: lastRefreshCommitToken,
+    });
+    if (!isOpen) {
+      setPromoError('');
+    }
+  }, [isOpen, cart, isLoading, isApplyingPromo, cartMutationEpoch, lastRefreshCommitToken]);
+
+  if (!isOpen) {
+    controllerRef.current.markClosedImmediately();
+    return null;
+  }
+
+  const isLiveMutationPending = isLoading || isApplyingPromo || Boolean(getIsMutationPending?.());
+  const isRevalidating = prepState.isPreparing;
+  const revalidationError = prepState.error;
+  const isCartLockedForCheckoutPrep = isRevalidating || isLiveMutationPending;
+  const verifiedCheckoutUrl = controllerRef.current.canFollowPreparedLink({
+    isOpen,
+    isMutationPending: isLiveMutationPending,
+    mutationEpoch: cartMutationEpoch,
+  })
+    ? prepState.verifiedCheckoutUrl
+    : null;
 
   const lines = cart?.lines || [];
   const totalQuantity = cart?.totalQuantity || 0;
@@ -74,82 +129,64 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const discountCodes = cart?.discountCodes || [];
   const applicableCodes = discountCodes.filter((d) => d.applicable);
 
+  const handleCloseDrawer = () => {
+    controllerRef.current?.invalidateForClose();
+    onClose();
+  };
+
   const handleApplyPromo = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLiveMutationPending || !controllerRef.current?.canEditCart()) return;
     setPromoError('');
-    setVerifiedCheckoutUrl(null);
-    setRevalidationError(null);
+    controllerRef.current.invalidateForMutationStart();
     const code = promoInput.trim().toUpperCase();
     if (!code) return;
 
     setIsApplyingPromo(true);
-    const result = await onApplyDiscount(code);
-    setIsApplyingPromo(false);
-
-    if (result.success) {
-      setPromoInput('');
-    } else {
-      setPromoError(result.message || 'Discount code not applicable or expired in Shopify.');
+    try {
+      const result = await onApplyDiscount(code);
+      if (result.success) {
+        setPromoInput('');
+      } else {
+        setPromoError(result.message || 'Discount code not applicable or expired in Shopify.');
+      }
+    } finally {
+      setIsApplyingPromo(false);
     }
   };
 
   const handleItemQuantityChange = (lineId: string, qty: number) => {
-    setVerifiedCheckoutUrl(null);
-    setRevalidationError(null);
+    if (isLiveMutationPending || !controllerRef.current?.canEditCart()) return;
+    controllerRef.current.invalidateForMutationStart();
     onUpdateQuantity(lineId, qty);
   };
 
   const handleItemRemove = (lineId: string) => {
-    setVerifiedCheckoutUrl(null);
-    setRevalidationError(null);
+    if (isLiveMutationPending || !controllerRef.current?.canEditCart()) return;
+    controllerRef.current.invalidateForMutationStart();
     onRemoveItem(lineId);
   };
 
   const handleProceedToCheckout = async () => {
-    if (!cart?.checkoutUrl) return;
-    setIsRevalidating(true);
-    setRevalidationError(null);
+    const controller = controllerRef.current;
+    if (!controller) return;
 
-    try {
-      // 1. Preserve cart revalidation with Shopify before navigating or presenting link
-      let freshCart: ShopifyCart | null = null;
-      if (onRevalidateCart) {
-        freshCart = await onRevalidateCart();
-      } else if (cart.id) {
-        freshCart = await getShopifyCart(cart.id);
-      } else {
-        freshCart = await getOrCreateShopifyCart();
-      }
-
-      const activeCart = freshCart || cart;
-      const targetCheckoutUrl = activeCart?.checkoutUrl;
-
-      if (!targetCheckoutUrl) {
-        setRevalidationError('Unable to verify Shopify checkout URL. Please try again.');
-        setIsRevalidating(false);
-        return;
-      }
-
-      // 2. Embedded preview vs standalone storefront handling
-      if (isEmbeddedPreview()) {
-        // Embedded preview (iframe):
-        // Shopify checkout prohibits iframe embedding (X-Frame-Options: DENY).
-        // Provide user-clickable link to open checkout in a new tab.
-        setVerifiedCheckoutUrl(targetCheckoutUrl);
-        setIsRevalidating(false);
-      } else {
-        // Normal standalone storefront:
-        // Preserve standard top-level checkout navigation.
-        window.location.href = targetCheckoutUrl;
-      }
-    } catch {
-      if (isEmbeddedPreview()) {
-        setVerifiedCheckoutUrl(cart.checkoutUrl);
-      } else {
-        window.location.href = cart.checkoutUrl;
-      }
-      setIsRevalidating(false);
-    }
+    await controller.prepareCheckout({
+      cart,
+      isOpen,
+      isMutationPending: isLoading || isApplyingPromo || Boolean(getIsMutationPending?.()),
+      mutationEpoch: cartMutationEpoch,
+      isEmbedded: isEmbeddedPreview(),
+      refreshCart: async (cartId, refreshToken) => {
+        if (onRevalidateCart) {
+          return await onRevalidateCart(refreshToken);
+        }
+        return await getShopifyCart(cartId);
+      },
+      navigate: (checkoutUrl) => {
+        window.location.href = checkoutUrl;
+      },
+    });
   };
 
   return (
@@ -169,7 +206,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           </div>
           <button
             id="close-cart-drawer-btn"
-            onClick={onClose}
+            onClick={handleCloseDrawer}
             className="min-h-[44px] min-w-[44px] p-2 rounded-lg text-[#64748b] hover:text-[#0f172a] hover:bg-[#f8fafc] transition-colors cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 touch-manipulation"
             aria-label="Close cart"
           >
@@ -204,13 +241,24 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  onClose();
+                  handleCloseDrawer();
                   onBrowseProducts();
                 }}
                 className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider transition-colors shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               >
                 Explore merch
               </button>
+              {revalidationError && (
+                <div
+                  id="cart-checkout-error"
+                  role="alert"
+                  aria-live="assertive"
+                  className="w-full max-w-xs p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600 flex items-center gap-2 text-left"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{revalidationError}</span>
+                </div>
+              )}
             </div>
           ) : (
             lines.map((line) => {
@@ -246,7 +294,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <button
                           type="button"
                           onClick={() => handleItemRemove(line.id)}
-                          className="text-[#64748b] hover:text-red-600 p-0.5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
+                          disabled={isCartLockedForCheckoutPrep}
+                          className="text-[#64748b] hover:text-red-600 p-0.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
                           aria-label="Remove item"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -277,8 +326,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <button
                           type="button"
                           onClick={() => handleItemQuantityChange(line.id, Math.max(0, line.quantity - 1))}
-                          className="px-2 py-0.5 text-xs text-[#64748b] hover:text-[#0f172a] cursor-pointer disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
-                          disabled={isLoading}
+                          className="px-2 py-0.5 text-xs text-[#64748b] hover:text-[#0f172a] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+                          disabled={isCartLockedForCheckoutPrep}
                         >
                           -
                         </button>
@@ -288,8 +337,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <button
                           type="button"
                           onClick={() => handleItemQuantityChange(line.id, line.quantity + 1)}
-                          className="px-2 py-0.5 text-xs text-[#64748b] hover:text-[#0f172a] cursor-pointer disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
-                          disabled={isLoading}
+                          className="px-2 py-0.5 text-xs text-[#64748b] hover:text-[#0f172a] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+                          disabled={isCartLockedForCheckoutPrep}
                         >
                           +
                         </button>
@@ -326,14 +375,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     value={promoInput}
                     onChange={(e) => setPromoInput(e.target.value)}
                     placeholder="Shopify discount code"
-                    className="w-full pl-8 pr-3 py-2 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs text-[#0f172a] placeholder-[#64748b] focus:outline-none focus:border-red-600 uppercase font-mono shadow-xs focus-visible:ring-2 focus-visible:ring-red-600"
-                    disabled={isApplyingPromo}
+                    className="w-full pl-8 pr-3 py-2 rounded-xl bg-[#f8fafc] border border-[#e2e8f0] text-xs text-[#0f172a] placeholder-[#64748b] focus:outline-none focus:border-red-600 uppercase font-mono shadow-xs focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-50"
+                    disabled={isCartLockedForCheckoutPrep}
                   />
                 </div>
                 <button
                   type="submit"
-                  disabled={isApplyingPromo || !promoInput.trim()}
-                  className="px-3 py-2 rounded-xl bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-semibold font-mono uppercase transition-colors disabled:opacity-40 cursor-pointer flex items-center gap-1 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
+                  disabled={isCartLockedForCheckoutPrep || !promoInput.trim()}
+                  className="px-3 py-2 rounded-xl bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-semibold font-mono uppercase transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
                 >
                   {isApplyingPromo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Apply</span>}
                 </button>
@@ -387,6 +436,24 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   href={verifiedCheckoutUrl}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={(e) => {
+                    const mutationNowPending =
+                      isLoading || isApplyingPromo || Boolean(getIsMutationPending?.());
+                    if (
+                      mutationNowPending ||
+                      isRevalidating ||
+                      !controllerRef.current?.canFollowPreparedLink({
+                        isOpen,
+                        isMutationPending: mutationNowPending,
+                        mutationEpoch: cartMutationEpoch,
+                      })
+                    ) {
+                      e.preventDefault();
+                      if (mutationNowPending) {
+                        controllerRef.current?.invalidateForMutationStart();
+                      }
+                    }
+                  }}
                   className="w-full min-h-[44px] py-3.5 px-4 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none touch-manipulation text-center"
                 >
                   <Lock className="w-4 h-4 shrink-0" />
@@ -399,8 +466,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   </span>
                   <button
                     type="button"
-                    onClick={() => setVerifiedCheckoutUrl(null)}
-                    className="text-[#64748b] hover:text-[#0f172a] underline cursor-pointer"
+                    onClick={() => controllerRef.current?.clearPrepared()}
+                    disabled={isCartLockedForCheckoutPrep}
+                    className="text-[#64748b] hover:text-[#0f172a] underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Re-check bag
                   </button>
@@ -411,8 +479,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 id="proceed-to-checkout-btn"
                 type="button"
                 onClick={handleProceedToCheckout}
-                disabled={isRevalidating || !cart?.checkoutUrl}
-                className="w-full min-h-[44px] py-3.5 px-4 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none touch-manipulation"
+                disabled={isCartLockedForCheckoutPrep || !cart?.id || !cart?.checkoutUrl}
+                className="w-full min-h-[44px] py-3.5 px-4 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 motion-reduce:transition-none touch-manipulation"
               >
                 {isRevalidating ? (
                   <>
@@ -430,7 +498,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             )}
 
             {revalidationError && (
-              <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600 flex items-center gap-2">
+              <div
+                id="cart-checkout-error"
+                role="alert"
+                aria-live="assertive"
+                className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600 flex items-center gap-2"
+              >
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{revalidationError}</span>
               </div>
