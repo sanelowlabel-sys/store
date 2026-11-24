@@ -37,7 +37,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
             {/* Headline */}
             <div className="space-y-3">
               <h1 className="text-3xl sm:text-5xl lg:text-6xl font-heading font-extrabold tracking-tight text-[#0f172a] leading-[1.08]">
-                Music-inspired apparel &amp; <br />
+                Music-inspired style. <br />
                 <span className="text-red-600">
                   Sanelow accessories.
                 </span>
