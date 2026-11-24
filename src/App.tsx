@@ -17,6 +17,11 @@ import { CustomerDashboard } from './components/CustomerDashboard';
 import { GalleryPage } from './components/GalleryPage';
 import { MerchLoader, MerchProductSkeleton } from './components/MerchLoader';
 import { ShopifySetupBanner } from './components/ShopifySetupBanner';
+import {
+  createStoreCartCheckoutCoordinator,
+  type StoreCartCheckoutCoordinator,
+  type StoreCartState,
+} from './lib/checkout-prep';
 
 import {
   Product,
@@ -155,9 +160,31 @@ export default function App() {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [isCatalogueTruncated, setIsCatalogueTruncated] = useState(false);
 
-  // Shopify Cart State
-  const [shopifyCart, setShopifyCart] = useState<ShopifyCart | null>(null);
-  const [isCartLoading, setIsCartLoading] = useState(false);
+  // Shopify Cart State (managed by authoritative StoreCartCheckoutCoordinator)
+  const cartCoordinatorRef = useRef<StoreCartCheckoutCoordinator | null>(null);
+  if (!cartCoordinatorRef.current) {
+    cartCoordinatorRef.current = createStoreCartCheckoutCoordinator({
+      fetchCart: getShopifyCart,
+      getOrCreateCart: getOrCreateShopifyCart,
+      addLines: addLinesToCart,
+      updateLine: updateLineInCart,
+      removeLine: removeLineFromCart,
+      applyDiscount: applyDiscountToCart,
+    });
+  }
+  const [cartState, setCartState] = useState<StoreCartState>(() =>
+    cartCoordinatorRef.current!.getState()
+  );
+  const shopifyCart = cartState.cart;
+  const isCartLoading = cartState.isLoading;
+
+  useEffect(() => {
+    const coordinator = cartCoordinatorRef.current;
+    if (!coordinator) return;
+    coordinator.setOnNotify((msg) => showToast(msg));
+    setCartState(coordinator.getState());
+    return coordinator.subscribe(setCartState);
+  }, []);
 
   // Navigation & Filtering State
   const [currentCategory, setCurrentCategory] = useState<Category>('all');
@@ -390,19 +417,9 @@ export default function App() {
     }
   }, [loadLiveProducts]);
 
-  // 2. Fetch or initialize Shopify Cart
+  // 2. Fetch or initialize Shopify Cart (normal shopping initialization/recovery)
   const loadCart = useCallback(async () => {
-    setIsCartLoading(true);
-    try {
-      const cart = await getOrCreateShopifyCart();
-      if (cart) {
-        setShopifyCart(cart);
-      }
-    } catch {
-      // Graceful fallback
-    } finally {
-      setIsCartLoading(false);
-    }
+    await cartCoordinatorRef.current?.loadCart();
   }, []);
 
   // Handle route change and load specific page data
@@ -542,109 +559,36 @@ export default function App() {
     variant: ShopifyVariant,
     quantity: number = 1
   ) => {
-    setIsCartLoading(true);
-    try {
-      let currentCart = shopifyCart;
-      if (!currentCart) {
-        currentCart = await getOrCreateShopifyCart();
-      }
-
-      if (!currentCart) {
-        showToast('Unable to initialize cart. Please check your connection.');
-        return;
-      }
-
-      const { cart, userErrors } = await addLinesToCart(currentCart.id, [
-        { merchandiseId: variant.id, quantity },
-      ]);
-
-      if (userErrors && userErrors.length > 0) {
-        showToast(userErrors[0].message || 'Could not add variant to bag');
-      } else if (cart) {
-        setShopifyCart(cart);
-        showToast(`Added ${quantity}x "${product.title}" (${variant.title}) to your bag`);
-      }
-    } catch {
-      showToast('Error communicating with Shopify Cart');
-    } finally {
-      setIsCartLoading(false);
-    }
+    await cartCoordinatorRef.current?.addToCart({
+      productTitle: product.title,
+      variantId: variant.id,
+      variantTitle: variant.title,
+      quantity,
+    });
   };
 
   const handleUpdateCartQuantity = async (lineId: string, quantity: number) => {
-    if (!shopifyCart) return;
-    setIsCartLoading(true);
-    try {
-      if (quantity <= 0) {
-        const { cart } = await removeLineFromCart(shopifyCart.id, lineId);
-        if (cart) setShopifyCart(cart);
-      } else {
-        const { cart } = await updateLineInCart(shopifyCart.id, lineId, quantity);
-        if (cart) setShopifyCart(cart);
-      }
-    } catch {
-      showToast('Error updating item in bag');
-    } finally {
-      setIsCartLoading(false);
-    }
+    await cartCoordinatorRef.current?.updateQuantity(lineId, quantity);
   };
 
   const handleRemoveFromCart = async (lineId: string) => {
-    if (!shopifyCart) return;
-    setIsCartLoading(true);
-    try {
-      const { cart } = await removeLineFromCart(shopifyCart.id, lineId);
-      if (cart) {
-        setShopifyCart(cart);
-        showToast('Item removed from bag');
-      }
-    } catch {
-      showToast('Error removing item from bag');
-    } finally {
-      setIsCartLoading(false);
-    }
+    await cartCoordinatorRef.current?.removeItem(lineId);
   };
 
   const handleApplyDiscount = async (code: string): Promise<{ success: boolean; message?: string }> => {
-    if (!shopifyCart) return { success: false, message: 'Cart not initialized' };
-    try {
-      const { cart, userErrors } = await applyDiscountToCart(shopifyCart.id, [code]);
-      if (userErrors && userErrors.length > 0) {
-        return { success: false, message: userErrors[0].message };
-      }
-      if (cart) {
-        setShopifyCart(cart);
-        const applied = cart.discountCodes.some((d) => d.code.toUpperCase() === code.toUpperCase() && d.applicable);
-        if (applied) {
-          showToast(`Shopify discount ${code} applied successfully!`);
-          return { success: true };
-        } else {
-          return { success: false, message: 'Code is not valid for items in your cart.' };
-        }
-      }
-      return { success: false, message: 'Could not apply code' };
-    } catch {
-      return { success: false, message: 'Error checking code with Shopify' };
+    if (!cartCoordinatorRef.current) {
+      return { success: false, message: 'Cart not initialized' };
     }
+    return await cartCoordinatorRef.current.applyDiscount(code);
   };
 
-  const handleRevalidateCart = useCallback(async (): Promise<ShopifyCart | null> => {
-    if (!shopifyCart?.id) return null;
-    try {
-      const freshCart = await getShopifyCart(shopifyCart.id);
-      if (freshCart) {
-        setShopifyCart(freshCart);
-        return freshCart;
-      }
-      const newCart = await getOrCreateShopifyCart();
-      if (newCart) {
-        setShopifyCart(newCart);
-      }
-      return newCart;
-    } catch {
-      return shopifyCart;
-    }
-  }, [shopifyCart]);
+  const handleRevalidateCart = useCallback(
+    async (refreshToken?: number): Promise<ShopifyCart | null> => {
+      if (!cartCoordinatorRef.current) return null;
+      return await cartCoordinatorRef.current.revalidateForCheckout(refreshToken);
+    },
+    []
+  );
 
   // Wishlist Actions
   const handleToggleWishlist = (
@@ -1213,6 +1157,9 @@ export default function App() {
         onClose={() => setIsCartOpen(false)}
         cart={shopifyCart}
         isLoading={isCartLoading}
+        cartMutationEpoch={cartState.mutationEpoch}
+        lastRefreshCommitToken={cartState.lastRefreshCommitToken}
+        getIsMutationPending={() => cartCoordinatorRef.current?.isMutationPending() ?? false}
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveFromCart}
         onApplyDiscount={handleApplyDiscount}
