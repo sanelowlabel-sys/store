@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Footer } from '../src/components/Footer';
 import { Navbar } from '../src/components/Navbar';
 import { CartDrawer } from '../src/components/CartDrawer';
-import type { ShopifyCart } from '../src/types';
+import { HeroBanner } from '../src/components/HeroBanner';
+import type { Product, ShopifyCart } from '../src/types';
 import {
   formatPrice,
   DEFAULT_CURRENCY,
@@ -1319,6 +1320,115 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     assert.ok(!cartDrawerSource.includes('Shopify PCI-Compliant Checkout'));
     assert.ok(!cartDrawerSource.includes('South Africa Delivery'));
     assert.ok(!cartDrawerSource.includes('Explore Merch Drops'));
+  });
+
+  it('38. HeroBanner renders replacement wording with and without a featured product and omits unsupported claims', () => {
+    const featuredProduct: Product = {
+      id: 'gid://shopify/Product/hero-1',
+      shopifyId: 'gid://shopify/Product/hero-1',
+      handle: 'sanelow-archive-tee',
+      title: 'Sanelow Archive Tee',
+      tagline: 'Archive Graphic Tee',
+      category: 'graphic-tees',
+      dropCollection: 'CORE COLLECTION',
+      sku: 'SNL-ARC-01',
+      priceAmount: 68,
+      compareAtPriceAmount: 80,
+      currencyCode: 'USD',
+      priceUSD: 68,
+      compareAtPriceUSD: 80,
+      discountPercent: 15,
+      availableForSale: true,
+      totalVariantsCount: 3,
+      isPreOrder: false,
+      description: 'Graphic tee from the Sanelow collection.',
+      features: [],
+      fabricSpecs: [],
+      sizingDetails: [],
+      sizes: ['S', 'M', 'L'],
+      colors: [{ name: 'Black', hex: '#000000' }],
+      images: ['https://cdn.shopify.com/hero-tee.jpg'],
+      variants: [],
+      options: [],
+      tags: [],
+      reviews: [],
+    };
+
+    const withProductHtml = renderToStaticMarkup(
+      React.createElement(HeroBanner, {
+        featuredProduct,
+        currency: 'USD',
+        onQuickView: () => {},
+        onScrollToCatalog: () => {},
+        onOpenTrackOrder: () => {},
+      })
+    );
+
+    const withoutProductHtml = renderToStaticMarkup(
+      React.createElement(HeroBanner, {
+        featuredProduct: null,
+        currency: 'USD',
+        onQuickView: () => {},
+        onScrollToCatalog: () => {},
+        onOpenTrackOrder: () => {},
+      })
+    );
+
+    for (const html of [withProductHtml, withoutProductHtml]) {
+      assert.ok(html.includes('SANELOW MUSIC GROUP MERCH'));
+      assert.ok(html.includes('SOUTH AFRICA'));
+      assert.ok(html.includes('Music-inspired apparel &amp;'));
+      assert.ok(html.includes('<br/>'));
+      assert.ok(html.includes('Sanelow accessories.'));
+      assert.ok(
+        html.includes(
+          'Explore graphic tops, layers, and accessories from Sanelow. View each product’s available sizes, colours, and details to find your next favourite.'
+        )
+      );
+      assert.ok(html.includes('id="hero-shop-catalog-btn"'));
+      assert.ok(html.includes('Explore the collection'));
+      assert.ok(html.includes('id="hero-track-order-btn"'));
+      assert.ok(html.includes('Track An Order'));
+      assert.ok(html.includes('Browse the collection'));
+      assert.ok(html.includes('Delivery options at checkout'));
+      assert.ok(html.includes('View product details'));
+
+      const lower = html.toLowerCase();
+      const removedClaims = [
+        'official sanelow storefront',
+        'heavyweight boxy fits',
+        'exclusive merch drops',
+        'custom-milled',
+        'heavyweight fabrics',
+        'vintage washes',
+        'structural relaxed silhouettes',
+        'verified nationwide and global delivery',
+        'explore the merch drop',
+        'shopify verified checkout',
+        'south africa delivery',
+        'pci-dss level 1 security',
+        'live catalogue syncing',
+        'products update automatically',
+      ];
+      for (const claim of removedClaims) {
+        assert.ok(!lower.includes(claim), `HeroBanner must not contain removed claim: "${claim}"`);
+      }
+    }
+
+    // Featured-product state preserves item details, pricing, discount, availability, and links
+    assert.ok(withProductHtml.includes('FEATURED PIECE'));
+    assert.ok(withProductHtml.includes('SAVE 15%'));
+    assert.ok(withProductHtml.includes('CORE COLLECTION'));
+    assert.ok(withProductHtml.includes('In Stock'));
+    assert.ok(withProductHtml.includes('Sanelow Archive Tee'));
+    assert.ok(withProductHtml.includes('href="/products/sanelow-archive-tee"'));
+    assert.ok(withProductHtml.includes('$68.00') && withProductHtml.includes('USD'));
+    assert.ok(withProductHtml.includes('View Options'));
+
+    // No-featured-product fallback renders updated neutral copy
+    assert.ok(withoutProductHtml.includes('Sanelow Merch Storefront'));
+    assert.ok(withoutProductHtml.includes('Explore the catalogue for available apparel and accessories.'));
+    assert.ok(withoutProductHtml.includes('Browse Catalogue'));
   });
 });
 
