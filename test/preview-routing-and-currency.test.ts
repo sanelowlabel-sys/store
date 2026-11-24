@@ -1120,6 +1120,92 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     assert.ok(!appSource.includes('scroll-mt-28 sm:scroll-mt-32'), 'App.tsx catalogue scroll-mt must reflect reduced header height');
     assert.ok(appSource.includes('scroll-mt-20 sm:scroll-mt-24'));
   });
+
+  it('36. BrandStorySection uses neutral styling and browsing copy without unverified garment, PCI, or fulfillment claims', async () => {
+    const path = await import('path');
+    const { createRequire } = await import('module');
+    const esbuild = await import('esbuild');
+
+    const bundled = await esbuild.build({
+      entryPoints: [path.resolve('src/components/BrandStorySection.tsx')],
+      bundle: true,
+      write: false,
+      format: 'cjs',
+      platform: 'node',
+      packages: 'external',
+      loader: { '.jpg': 'dataurl' },
+    });
+
+    const nodeRequire = createRequire(import.meta.url);
+    const mod = { exports: {} as { BrandStorySection: React.ComponentType } };
+    const evalFn = new Function('require', 'module', 'exports', bundled.outputFiles[0].text);
+    evalFn(nodeRequire, mod, mod.exports);
+    const html = renderToStaticMarkup(React.createElement(mod.exports.BrandStorySection));
+
+    // Exact requested heading, introduction, and three feature blocks
+    assert.ok(html.includes('Music-inspired style. Explore the collection.'));
+    assert.ok(
+      html.includes('Explore Sanelow apparel and accessories. Check each product page for available colours, sizes, materials, and product details.')
+    );
+    assert.ok(html.includes('Explore the range'));
+    assert.ok(html.includes('Browse apparel and accessories across the store.'));
+    assert.ok(html.includes('Choose your style'));
+    assert.ok(html.includes('View available sizes and colours on each product page.'));
+    assert.ok(html.includes('Need a hand?'));
+    assert.ok(html.includes('For merchandise questions, contact'));
+    assert.ok(html.includes(`mailto:${STORE_CONTACT_EMAIL}`));
+    assert.ok(html.includes(STORE_CONTACT_EMAIL));
+
+    // Neutral image-adjacent styling blocks & Apparel / Accessories / Music-inspired strip
+    assert.ok(html.includes('Everyday Merch Styling'));
+    assert.ok(html.includes('Visual Look Previews'));
+    assert.ok(html.includes('Apparel'));
+    assert.ok(html.includes('Accessories'));
+    assert.ok(html.includes('Music-inspired'));
+
+    // Preserved AI-generated styling-preview labels & images
+    assert.ok(html.includes('AI-generated styling preview'));
+    assert.ok(html.includes('// STYLING PREVIEW'));
+    assert.ok(html.includes('AI-generated styling preview - Sanelow graphic sweatshirt'));
+    assert.ok(html.includes('AI-generated styling preview - Sanelow graphic hoodie'));
+
+    // Unsupported claims must be absent from visible text
+    const visibleText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').toLowerCase();
+    const bannedClaims = [
+      'crafted without compromise',
+      'powered by shopify checkout',
+      'direct merch atelier',
+      'tailored boxy silhouette',
+      'reinforced ribbing',
+      'dropped shoulder',
+      'shrink-resistant',
+      'combed cotton',
+      'pigment &amp; acid wash',
+      'enzyme treatments',
+      'patina',
+      'hand feel',
+      'direct-to-consumer',
+      'retail markups',
+      'distributor',
+      'licensing fees',
+      'verified tracking',
+      'heavyweight structured weaves',
+      'french terry',
+      'ring-spun',
+      'pci',
+      'encrypted',
+      'sms',
+      'courier tracking links',
+      '100%',
+      'usd',
+      'south africa context',
+      'shopify fulfillment',
+      'official storefront',
+    ];
+    for (const claim of bannedClaims) {
+      assert.ok(!visibleText.includes(claim), `BrandStorySection must not contain unsupported claim: "${claim}"`);
+    }
+  });
 });
 
 
