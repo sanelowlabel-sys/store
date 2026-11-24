@@ -4,6 +4,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Footer } from '../src/components/Footer';
 import { Navbar } from '../src/components/Navbar';
+import { CartDrawer } from '../src/components/CartDrawer';
+import type { ShopifyCart } from '../src/types';
 import {
   formatPrice,
   DEFAULT_CURRENCY,
@@ -1205,6 +1207,118 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     for (const claim of bannedClaims) {
       assert.ok(!visibleText.includes(claim), `BrandStorySection must not contain unsupported claim: "${claim}"`);
     }
+  });
+
+  it('37. CartDrawer renders replacement copy in empty and populated states while preserving layout, IDs, and cart details', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const emptyHtml = renderToStaticMarkup(
+      React.createElement(CartDrawer, {
+        isOpen: true,
+        onClose: () => {},
+        cart: null,
+        isLoading: false,
+        onUpdateQuantity: () => {},
+        onRemoveItem: () => {},
+        onApplyDiscount: async () => ({ success: false }),
+        onBrowseProducts: () => {},
+      })
+    );
+
+    assert.ok(emptyHtml.includes('id="cart-drawer-container"'));
+    assert.ok(emptyHtml.includes('id="close-cart-drawer-btn"'));
+    assert.ok(emptyHtml.includes('Merch Bag (0)'));
+    assert.ok(emptyHtml.includes('Your merchandise bag'));
+    assert.ok(emptyHtml.includes('Your bag is empty'));
+    assert.ok(emptyHtml.includes('Browse Sanelow apparel and accessories.'));
+    assert.ok(emptyHtml.includes('Explore merch'));
+
+    for (const oldText of ['Official Shopify Storefront Cart', 'custom-milled', 'Explore Merch Drops']) {
+      assert.ok(!emptyHtml.includes(oldText), `Empty CartDrawer must not contain "${oldText}"`);
+    }
+
+    const sampleCart: ShopifyCart = {
+      id: 'gid://shopify/Cart/test-1',
+      checkoutUrl: 'https://sx71id-uy.myshopify.com/cart/c/test-1',
+      totalQuantity: 2,
+      cost: {
+        subtotalAmount: { amount: '90.00', currencyCode: 'USD' },
+        totalAmount: { amount: '90.00', currencyCode: 'USD' },
+      },
+      discountCodes: [],
+      lines: [
+        {
+          id: 'gid://shopify/CartLine/1',
+          quantity: 2,
+          cost: {
+            amountPerQuantity: { amount: '45.00', currencyCode: 'USD' },
+            subtotalAmount: { amount: '90.00', currencyCode: 'USD' },
+            totalAmount: { amount: '90.00', currencyCode: 'USD' },
+          },
+          merchandise: {
+            id: 'gid://shopify/ProductVariant/1',
+            title: 'L / Black',
+            availableForSale: true,
+            sku: 'SNL-TEE-01',
+            selectedOptions: [
+              { name: 'Size', value: 'L' },
+              { name: 'Color', value: 'Black' },
+            ],
+            price: { amount: '45.00', currencyCode: 'USD' },
+            product: {
+              id: 'gid://shopify/Product/1',
+              title: 'Sanelow Graphic Tee',
+              handle: 'sanelow-graphic-tee',
+            },
+          },
+          discountAllocations: [],
+        },
+      ],
+    };
+
+    const populatedHtml = renderToStaticMarkup(
+      React.createElement(CartDrawer, {
+        isOpen: true,
+        onClose: () => {},
+        cart: sampleCart,
+        isLoading: false,
+        onUpdateQuantity: () => {},
+        onRemoveItem: () => {},
+        onApplyDiscount: async () => ({ success: false }),
+        onBrowseProducts: () => {},
+      })
+    );
+
+    assert.ok(populatedHtml.includes('id="cart-drawer-container"'));
+    assert.ok(populatedHtml.includes('id="close-cart-drawer-btn"'));
+    assert.ok(populatedHtml.includes('id="proceed-to-checkout-btn"'));
+    assert.ok(populatedHtml.includes('Merch Bag (2)'));
+    assert.ok(populatedHtml.includes('Your merchandise bag'));
+    assert.ok(populatedHtml.includes('USD Context'));
+    assert.ok(populatedHtml.includes('Sanelow Graphic Tee'));
+    assert.ok(populatedHtml.includes('$90.00') && populatedHtml.includes('USD'));
+    assert.ok(populatedHtml.includes('Calculated at Shopify checkout'));
+    assert.ok(populatedHtml.includes('Review your order at checkout'));
+    assert.ok(populatedHtml.includes('Delivery options at checkout'));
+
+    for (const oldText of [
+      'Official Shopify Storefront Cart',
+      'Shopify PCI-Compliant Checkout',
+      'South Africa Delivery',
+      'Bag revalidated with Shopify',
+    ]) {
+      assert.ok(!populatedHtml.includes(oldText), `Populated CartDrawer must not contain "${oldText}"`);
+    }
+
+    // Verify revalidated checkout status copy in CartDrawer source
+    const cartDrawerSource = fs.readFileSync(path.resolve('src/components/CartDrawer.tsx'), 'utf-8');
+    assert.ok(cartDrawerSource.includes('Continue to checkout'), 'CartDrawer must use "Continue to checkout" status text');
+    assert.ok(!cartDrawerSource.includes('Bag revalidated with Shopify'), 'CartDrawer must remove "Bag revalidated with Shopify"');
+    assert.ok(!cartDrawerSource.includes('Official Shopify Storefront Cart'));
+    assert.ok(!cartDrawerSource.includes('Shopify PCI-Compliant Checkout'));
+    assert.ok(!cartDrawerSource.includes('South Africa Delivery'));
+    assert.ok(!cartDrawerSource.includes('Explore Merch Drops'));
   });
 });
 
