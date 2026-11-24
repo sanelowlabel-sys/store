@@ -6,6 +6,7 @@ import { Footer } from '../src/components/Footer';
 import { Navbar } from '../src/components/Navbar';
 import { CartDrawer } from '../src/components/CartDrawer';
 import { HeroBanner } from '../src/components/HeroBanner';
+import { FaqModal } from '../src/components/FaqModal';
 import type { Product, ShopifyCart } from '../src/types';
 import {
   formatPrice,
@@ -1430,6 +1431,97 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     assert.ok(withoutProductHtml.includes('Sanelow Merch Storefront'));
     assert.ok(withoutProductHtml.includes('Explore the catalogue for available apparel and accessories.'));
     assert.ok(withoutProductHtml.includes('Browse Catalogue'));
+  });
+
+  it('39. FaqModal renders replacement neutral copy using STORE_CONTACT_EMAIL and removes unverified claims', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const closedHtml = renderToStaticMarkup(
+      React.createElement(FaqModal, {
+        isOpen: false,
+        onClose: () => {},
+        onOpenTrackOrder: () => {},
+      })
+    );
+    assert.equal(closedHtml, '', 'Closed FaqModal must render nothing');
+
+    const openHtml = renderToStaticMarkup(
+      React.createElement(FaqModal, {
+        isOpen: true,
+        onClose: () => {},
+        onOpenTrackOrder: () => {},
+      })
+    );
+
+    // Preserved modal container, title, controls, and accessibility attributes
+    assert.ok(openHtml.includes('id="faq-modal-container"'));
+    assert.ok(openHtml.includes('aria-label="Close FAQ"'));
+    assert.ok(openHtml.includes('Merch Sizing &amp; Order FAQ'));
+    assert.ok(openHtml.includes('Track Merch Order'));
+
+    // Exact subtitle and tracking footer prompt
+    assert.ok(openHtml.includes('Help with product information, sizing questions, and your order.'));
+    assert.ok(openHtml.includes('Need to check an order?'));
+
+    // Five replacement FAQ entries using STORE_CONTACT_EMAIL
+    assert.ok(openHtml.includes('How do I choose a size?'));
+    assert.ok(
+      openHtml.includes(
+        `Check the individual product page for available sizes and any sizing information provided. If you need help before ordering, contact ${STORE_CONTACT_EMAIL}.`
+      )
+    );
+    assert.ok(openHtml.includes('Where can I check delivery options?'));
+    assert.ok(
+      openHtml.includes(
+        'Enter your delivery address at checkout to review the available delivery options, charges, and any displayed estimates before paying.'
+      )
+    );
+    assert.ok(openHtml.includes('Where can I find care instructions?'));
+    assert.ok(
+      openHtml.includes(
+        `Follow the care label supplied with your item and any product-specific care instructions. For questions about a particular item, contact ${STORE_CONTACT_EMAIL}.`
+      )
+    );
+    assert.ok(openHtml.includes('Who can I contact about an order issue?'));
+    assert.ok(
+      openHtml.includes(
+        `For questions about your order or an item you received, contact ${STORE_CONTACT_EMAIL}. Include your order number, but do not send payment-card details or passwords.`
+      )
+    );
+    assert.ok(openHtml.includes('Which payment methods can I use?'));
+    assert.ok(openHtml.includes('Review the payment methods offered at checkout before placing your order.'));
+
+    // Confirm STORE_CONTACT_EMAIL constant is used without duplicating literal address in source
+    const faqSource = fs.readFileSync(path.resolve('src/components/FaqModal.tsx'), 'utf-8');
+    assert.ok(faqSource.includes('STORE_CONTACT_EMAIL'), 'FaqModal.tsx must reference STORE_CONTACT_EMAIL');
+    assert.ok(!faqSource.includes('merch@sanelowmusiclabel.co.za'), 'FaqModal.tsx must not duplicate literal email');
+
+    // Old claims must be absent
+    const lowerHtml = openHtml.toLowerCase();
+    const removedClaims = [
+      '450–500 gsm',
+      'french terry',
+      'ordering one size down',
+      'us streetwear sizing',
+      '85 countries',
+      'within 24 hours',
+      '5-7 business days',
+      '3-5 business days',
+      'air express freight',
+      'custom pigment wash',
+      'puff print',
+      'chenille embroidery',
+      '30-day authentic fit',
+      '30-day fit guarantee',
+      'free prepaid exchange',
+      'sx71id-uy.myshopify.com',
+      'looking for live drop tracking checkpoints',
+      'essential details regarding heavyweight fabrics',
+    ];
+    for (const claim of removedClaims) {
+      assert.ok(!lowerHtml.includes(claim), `FaqModal must not contain removed claim: "${claim}"`);
+    }
   });
 });
 
