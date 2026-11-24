@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X,
   Trash2,
@@ -24,6 +24,7 @@ import {
   CheckoutPrepState,
   createCheckoutPreparationController,
 } from '../lib/checkout-prep';
+import { acquireOverlayRestrictions } from '../lib/overlay-restrictions';
 
 interface MoneyValue {
   amount?: string | number | null;
@@ -88,6 +89,112 @@ function parseCartMoney(money: MoneyValue | null | undefined): ParsedMoney | nul
   };
 }
 
+function isElementHiddenOrInert(el: HTMLElement, stopAt?: HTMLElement | null): boolean {
+  let cur: HTMLElement | null = el;
+  while (cur && cur !== stopAt) {
+    if (
+      cur.hasAttribute?.('hidden') ||
+      cur.getAttribute?.('aria-hidden') === 'true' ||
+      cur.hasAttribute?.('inert') ||
+      (cur as unknown as { inert?: boolean }).inert === true ||
+      cur.style?.display === 'none' ||
+      cur.style?.visibility === 'hidden'
+    ) {
+      return true;
+    }
+    cur = cur.parentElement;
+  }
+  return false;
+}
+
+function isTabbableElement(el: HTMLElement, container: HTMLElement): boolean {
+  if ((el as HTMLButtonElement).disabled || el.hasAttribute?.('disabled')) return false;
+  const tag = el.tagName?.toUpperCase();
+  if (tag === 'INPUT' && el.getAttribute?.('type') === 'hidden') return false;
+  const tabIndexAttr = el.getAttribute?.('tabindex');
+  if (tabIndexAttr !== null && tabIndexAttr !== undefined) {
+    const parsed = Number(tabIndexAttr);
+    if (!Number.isFinite(parsed) || parsed < 0) return false;
+  } else {
+    const isNativelyTabbable =
+      tag === 'BUTTON' ||
+      tag === 'INPUT' ||
+      tag === 'SELECT' ||
+      tag === 'TEXTAREA' ||
+      (tag === 'A' && el.hasAttribute?.('href'));
+    if (!isNativelyTabbable) return false;
+  }
+  return !isElementHiddenOrInert(el, container);
+}
+
+function getTabbableElements(container: HTMLElement): HTMLElement[] {
+  const candidates: HTMLElement[] =
+    typeof container.querySelectorAll === 'function'
+      ? (Array.from(
+          container.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')
+        ) as HTMLElement[])
+      : (() => {
+          const collected: HTMLElement[] = [];
+          const walk = (node: Node) => {
+            const children = (node as HTMLElement).children
+              ? Array.from((node as HTMLElement).children)
+              : Array.from(node.childNodes || []);
+            for (const child of children) {
+              if (child.nodeType === 1) {
+                collected.push(child as HTMLElement);
+                walk(child);
+              }
+            }
+          };
+          walk(container);
+          return collected;
+        })();
+
+  return candidates.filter((el) => isTabbableElement(el, container));
+}
+
+function isUsableFocusRestoreTarget(el: HTMLElement, drawerEl: HTMLElement): boolean {
+  if (!el || typeof el.focus !== 'function') return false;
+  if (typeof document === 'undefined') return false;
+  if (el === document.body || el === document.documentElement) return false;
+  if (drawerEl.contains(el)) return false;
+  if ('isConnected' in el && el.isConnected === false) return false;
+  if (document.body && typeof document.body.contains === 'function' && !document.body.contains(el)) {
+    return false;
+  }
+  if ((el as HTMLButtonElement).disabled || el.hasAttribute?.('disabled')) return false;
+  if (isElementHiddenOrInert(el)) return false;
+  return true;
+}
+
+function findClosestDialog(el: HTMLElement | null): HTMLElement | null {
+  let cur: HTMLElement | null = el;
+  while (cur) {
+    const role = cur.getAttribute?.('role');
+    if (role === 'dialog' || role === 'alertdialog') return cur;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+function isCartDrawerTopmostModal(drawerEl: HTMLElement): boolean {
+  if (typeof document === 'undefined') return true;
+  const activeEl = document.activeElement as HTMLElement | null;
+  const activeDialog = findClosestDialog(activeEl);
+  if (activeDialog && activeDialog !== drawerEl) {
+    return false;
+  }
+  if (typeof document.querySelectorAll === 'function') {
+    const modals = Array.from(
+      document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+    ) as HTMLElement[];
+    if (modals.length > 0 && modals[modals.length - 1] !== drawerEl && modals.includes(drawerEl)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 interface CartDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -135,6 +242,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     controllerRef.current!.getState()
   );
 
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  const handleCloseDrawer = useCallback(() => {
+    controllerRef.current?.invalidateForClose();
+    onCloseRef.current();
+  }, []);
+
   useEffect(() => {
     const controller = controllerRef.current;
     if (!controller) return;
@@ -159,6 +278,143 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       setPromoError('');
     }
   }, [isOpen, cart, isLoading, isApplyingPromo, cartMutationEpoch, lastRefreshCommitToken]);
+
+  // Modal dialog focus management, scoped Escape, Tab containment, and background isolation
+  useEffect(() => {
+    if (!isOpen || typeof document === 'undefined') return;
+
+    const drawerEl = drawerRef.current;
+    const overlayEl = overlayRef.current;
+    if (!drawerEl || !overlayEl) return;
+
+    const activeBeforeOpen = document.activeElement as HTMLElement | null;
+    if (
+      activeBeforeOpen &&
+      activeBeforeOpen !== document.body &&
+      activeBeforeOpen !== document.documentElement &&
+      !drawerEl.contains(activeBeforeOpen)
+    ) {
+      previousFocusRef.current = activeBeforeOpen;
+    }
+
+    const restrictionsHandle = acquireOverlayRestrictions({
+      overlayEl,
+      doc: document,
+      lockScroll: true,
+      ownerLabel: 'cart-drawer',
+    });
+
+    const moveInitialFocus = () => {
+      const closeBtn = closeButtonRef.current;
+      if (closeBtn && !closeBtn.disabled && !isElementHiddenOrInert(closeBtn, drawerEl)) {
+        closeBtn.focus();
+        return;
+      }
+      const tabbables = getTabbableElements(drawerEl);
+      if (tabbables.length > 0) {
+        tabbables[0].focus();
+        return;
+      }
+      drawerEl.focus();
+    };
+    moveInitialFocus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.defaultPrevented ||
+        (e as unknown as { isComposing?: boolean }).isComposing ||
+        e.keyCode === 229
+      ) {
+        return;
+      }
+      if (!isCartDrawerTopmostModal(drawerEl)) {
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        const target = e.target as HTMLElement | null;
+        const activeEl = document.activeElement as HTMLElement | null;
+        const targetDialog = findClosestDialog(target);
+        if (targetDialog && targetDialog !== drawerEl) {
+          return;
+        }
+        if (
+          target &&
+          !overlayEl.contains(target) &&
+          target !== document.body &&
+          target !== document.documentElement
+        ) {
+          return;
+        }
+        if (
+          target?.getAttribute?.('aria-expanded') === 'true' ||
+          activeEl?.getAttribute?.('aria-expanded') === 'true'
+        ) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        handleCloseDrawer();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
+        const tabbables = getTabbableElements(drawerEl);
+        if (tabbables.length === 0) {
+          e.preventDefault();
+          drawerEl.focus();
+          return;
+        }
+
+        const activeEl = document.activeElement as HTMLElement | null;
+        const first = tabbables[0];
+        const last = tabbables[tabbables.length - 1];
+
+        if (!activeEl || !drawerEl.contains(activeEl)) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+          return;
+        }
+
+        if (e.shiftKey) {
+          if (activeEl === first || activeEl === drawerEl) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else if (activeEl === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (drawerEl.contains(target)) return;
+      if (!isCartDrawerTopmostModal(drawerEl)) return;
+      const targetDialog = findClosestDialog(target);
+      if (targetDialog && targetDialog !== drawerEl) return;
+      moveInitialFocus();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('focusin', handleFocusIn);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('focusin', handleFocusIn);
+
+      restrictionsHandle.release();
+
+      const opener = previousFocusRef.current;
+      previousFocusRef.current = null;
+      if (opener && isUsableFocusRestoreTarget(opener, drawerEl)) {
+        opener.focus();
+      }
+    };
+  }, [isOpen, handleCloseDrawer]);
 
   if (!isOpen) {
     controllerRef.current.markClosedImmediately();
@@ -199,11 +455,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const discountCodes = cart?.discountCodes || [];
   const applicableCodes = discountCodes.filter((d) => d.applicable);
-
-  const handleCloseDrawer = () => {
-    controllerRef.current?.invalidateForClose();
-    onClose();
-  };
 
   const handleApplyPromo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,21 +512,33 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-hidden">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-hidden"
+    >
       <div
+        ref={drawerRef}
         id="cart-drawer-container"
-        className="w-full max-w-full sm:max-w-md h-full max-h-screen bg-white border-l border-[#e2e8f0] text-[#0f172a] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 font-sans min-h-0"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cart-drawer-heading"
+        tabIndex={-1}
+        className="w-full max-w-full sm:max-w-md h-full max-h-screen bg-white border-l border-[#e2e8f0] text-[#0f172a] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 font-sans min-h-0 focus:outline-none"
       >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-[#e2e8f0] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <ShoppingBag className="w-5 h-5 text-red-600" />
-            <h2 className="text-base font-heading font-extrabold text-[#0f172a] uppercase tracking-wider">
+            <h2
+              id="cart-drawer-heading"
+              className="text-base font-heading font-extrabold text-[#0f172a] uppercase tracking-wider"
+            >
               Merch Bag ({totalQuantity})
             </h2>
             {isLoading && <Loader2 className="w-3.5 h-3.5 text-[#64748b] animate-spin" />}
           </div>
           <button
+            ref={closeButtonRef}
             id="close-cart-drawer-btn"
             onClick={handleCloseDrawer}
             className="min-h-[44px] min-w-[44px] p-2 rounded-lg text-[#64748b] hover:text-[#0f172a] hover:bg-[#f8fafc] transition-colors cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 touch-manipulation"
