@@ -576,26 +576,22 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
         );
       } else {
         // < 1280px: Desktop nav is collapsed into hamburger menu (xl:hidden)
-        // Logo is positioned independently at container center: x = contentWidth / 2
-        const hamburgerWidth = width >= 375 ? 36 : 32;
-        const logoWidth = width >= 640 ? 48 : width >= 375 ? 44 : 40;
-        const logoLeft = (contentWidth / 2) - (logoWidth / 2);
-        const logoRight = (contentWidth / 2) + (logoWidth / 2);
-
-        // Hamburger on left must clear centered logo left edge
-        assert.ok(
-          hamburgerWidth < logoLeft,
-          `At ${width}px, Left hamburger (${hamburgerWidth}px) must clear centered logo left edge (${logoLeft}px)`
-        );
+        // Mobile/tablet logo sits immediately right of hamburger in the same left-aligned group
+        const hamburgerWidth = 40; // p-2 + w-6
+        const groupGap = width >= 640 ? 10 : 8; // gap-2 sm:gap-2.5
+        const logoWidth = width >= 640 ? 56 : 52; // p-1 + w-11 sm:w-12
+        const leftGroupWidth = hamburgerWidth + groupGap + logoWidth;
 
         // Action cluster on right:
-        // On tablet (>= 640px): ~220px–310px
-        // On mobile (< 640px down to 320px): ~108px (Search + Wishlist + Cart; Account & Currency in mobile menu)
-        const actionClusterWidth = width >= 768 ? 310 : width >= 640 ? 250 : width >= 375 ? 120 : 108;
-        const actionLeft = contentWidth - actionClusterWidth;
+        // On tablet (>= 768px): Currency + Search + Account (with text) + Wishlist + Cart
+        // On sm (>= 640px): Currency + Search + Account (icon) + Wishlist + Cart
+        // On mobile (< 640px): Search + Wishlist (>=380px) + Cart
+        const actionClusterWidth = width >= 768 ? 360 : width >= 640 ? 290 : width >= 380 ? 140 : 108;
+        const barGap = width >= 640 ? 16 : 8;
+
         assert.ok(
-          logoRight < actionLeft,
-          `At ${width}px, Centered logo right edge (${logoRight}px) must clear right action cluster (${actionLeft}px)`
+          leftGroupWidth + barGap + actionClusterWidth <= contentWidth,
+          `At ${width}px, Left hamburger+logo group (${leftGroupWidth}px) + gap (${barGap}px) + right actions (${actionClusterWidth}px) must fit within contentWidth (${contentWidth}px) without overlap`
         );
       }
 
@@ -1522,6 +1518,50 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     for (const claim of removedClaims) {
       assert.ok(!lowerHtml.includes(claim), `FaqModal must not contain removed claim: "${claim}"`);
     }
+  });
+
+  it('40. Navbar left-aligns the mobile logo immediately to the right of the hamburger button without center-logo grid or spacers', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(Navbar, {
+        currentCategory: 'all',
+        onSelectCategory: () => {},
+        currency: 'USD',
+        onSelectCurrency: () => {},
+        cartCount: 1,
+        cartTotalAmount: 45,
+        wishlistCount: 2,
+        onOpenCart: () => {},
+        onOpenWishlist: () => {},
+        onOpenTrackOrder: () => {},
+        onOpenCustomerPortal: () => {},
+        onNavigateAccount: () => {},
+        searchQuery: '',
+        onSearchChange: () => {},
+        onNavigateGallery: () => {},
+      })
+    );
+
+    // Center-logo grid & justify-center mobile wrapper must be removed
+    assert.ok(!html.includes('grid-cols-[1fr_auto_1fr]'), 'Navbar must not use 1fr_auto_1fr mobile centering grid');
+
+    // Same left-aligned flex group contains #mobile-menu-btn immediately followed by #navbar-brand-logo
+    assert.match(
+      html,
+      /<div class="flex items-center gap-2 sm:gap-2\.5 xl:gap-0 shrink-0 z-10">\s*<button id="mobile-menu-btn"[^>]*aria-label="Toggle menu"[^>]*>.*?<\/button>\s*<a[^>]*id="navbar-brand-logo"[^>]*aria-label="Sanelow Store Home"[^>]*>/,
+      'Navbar must place #navbar-brand-logo immediately after #mobile-menu-btn in the same left-aligned group'
+    );
+
+    // Preserve hamburger visibility rule, logo image/size/link, right actions, and expanded desktop nav
+    assert.ok(html.includes('xl:hidden p-2'), 'Hamburger button must remain hidden on xl+ desktop viewports');
+    assert.ok(html.includes('href="/" id="navbar-brand-logo"') || html.includes('id="navbar-brand-logo"'));
+    assert.ok(html.includes('src="/sanelow-logo.jpg"'));
+    assert.ok(html.includes('alt="Sanelow Store Logo"'));
+    assert.ok(html.includes('w-11 h-11 sm:w-12 sm:h-12'));
+    assert.ok(html.includes('hidden xl:flex items-center gap-1 2xl:gap-1.5'));
+    assert.ok(html.includes('xl:ml-auto'));
+    assert.ok(html.includes('id="search-toggle-btn"'));
+    assert.ok(html.includes('id="wishlist-drawer-btn"'));
+    assert.ok(html.includes('id="cart-drawer-btn"'));
   });
 });
 
