@@ -668,7 +668,7 @@ describe('Checkout Refresh Failure Handling & Concurrency Safety', () => {
     assert.ok(!cartDrawerSource.includes('freshCart || cart'), 'CartDrawer must not fall back to cached cart');
 
     const firstHookIdx = cartDrawerSource.indexOf('useState(');
-    const earlyReturnIdx = cartDrawerSource.indexOf('if (!isOpen) {');
+    const earlyReturnIdx = cartDrawerSource.indexOf('\n  if (!isOpen) {');
     assert.ok(firstHookIdx !== -1 && earlyReturnIdx !== -1);
     assert.ok(cartDrawerSource.includes('controllerRef.current.markClosedImmediately();'));
     assert.ok(
@@ -714,6 +714,23 @@ class MockNode {
     this.ownerDocument = ownerDocument;
   }
 
+  get parentElement(): MockElement | null {
+    return this.parentNode instanceof MockElement ? this.parentNode : null;
+  }
+
+  get children(): MockElement[] {
+    return this.childNodes.filter((c): c is MockElement => c instanceof MockElement);
+  }
+
+  get isConnected(): boolean {
+    let cur: MockNode | null = this;
+    while (cur) {
+      if (cur === this.ownerDocument) return true;
+      cur = cur.parentNode;
+    }
+    return false;
+  }
+
   get firstChild(): MockNode | null {
     return this.childNodes[0] ?? null;
   }
@@ -756,6 +773,9 @@ class MockNode {
   removeChild(child: MockNode): MockNode {
     const idx = this.childNodes.indexOf(child);
     if (idx !== -1) {
+      if (this.ownerDocument && child.contains(this.ownerDocument.activeElement)) {
+        this.ownerDocument.activeElement = this.ownerDocument.body;
+      }
       this.childNodes.splice(idx, 1);
       child.parentNode = null;
     }
@@ -815,13 +835,19 @@ class MockElement extends MockNode {
   nodeName: string;
   attributes: Record<string, string> = {};
   style: Record<string, string> = {};
+  oninput: ((ev: any) => void) | null = null;
   private _disabled = false;
+  private _inert = false;
   private _value = '';
 
   constructor(tagName: string, ownerDocument: MockDocument) {
     super(1, ownerDocument);
     this.tagName = tagName.toUpperCase();
     this.nodeName = this.tagName;
+    if (this.tagName === 'INPUT' || this.tagName === 'TEXTAREA') {
+      (this as any).selectionStart = 0;
+      (this as any).selectionEnd = 0;
+    }
   }
 
   get id(): string {
@@ -850,6 +876,38 @@ class MockElement extends MockNode {
     }
   }
 
+  get inert(): boolean {
+    return this._inert || this.hasAttribute('inert');
+  }
+  set inert(v: boolean) {
+    this._inert = Boolean(v);
+    if (this._inert) {
+      this.attributes.inert = '';
+    } else {
+      delete this.attributes.inert;
+    }
+  }
+
+  get tabIndex(): number {
+    if (this.hasAttribute('tabindex')) {
+      const parsed = Number(this.attributes.tabindex);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    if (
+      this.tagName === 'BUTTON' ||
+      this.tagName === 'INPUT' ||
+      this.tagName === 'SELECT' ||
+      this.tagName === 'TEXTAREA' ||
+      (this.tagName === 'A' && this.hasAttribute('href'))
+    ) {
+      return 0;
+    }
+    return -1;
+  }
+  set tabIndex(v: number) {
+    this.setAttribute('tabindex', String(v));
+  }
+
   get value(): string {
     return this._value;
   }
@@ -871,11 +929,17 @@ class MockElement extends MockNode {
     this.childNodes = v ? [new MockTextNode(v, this.ownerDocument)] : [];
   }
 
+  hasAttribute(name: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.attributes, name);
+  }
+
   setAttribute(name: string, val: unknown) {
     const strVal = String(val);
     this.attributes[name] = strVal;
     if (name === 'disabled') {
       this._disabled = true;
+    } else if (name === 'inert') {
+      this._inert = true;
     }
   }
 
@@ -883,6 +947,8 @@ class MockElement extends MockNode {
     delete this.attributes[name];
     if (name === 'disabled') {
       this._disabled = false;
+    } else if (name === 'inert') {
+      this._inert = false;
     }
   }
 
@@ -892,8 +958,62 @@ class MockElement extends MockNode {
       : null;
   }
 
+  closest(selector: string): MockElement | null {
+    const parts = selector.split(',').map((s) => s.trim());
+    let cur: MockElement | null = this;
+    while (cur) {
+      if (parts.some((p) => matchesSimpleSelector(cur!, p))) {
+        return cur;
+      }
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
+  querySelectorAll(selector: string): MockElement[] {
+    const parts = selector.split(',').map((s) => s.trim());
+    return findElements(this, (el) => parts.some((p) => matchesSimpleSelector(el, p)));
+  }
+
+  focus() {
+    if (!this.isConnected) return;
+    if (this.disabled || this.hasAttribute('disabled')) return;
+    let cur: MockElement | null = this;
+    while (cur) {
+      if (
+        cur.inert ||
+        cur.hasAttribute('inert') ||
+        cur.hasAttribute('hidden') ||
+        cur.style.display === 'none' ||
+        cur.style.visibility === 'hidden'
+      ) {
+        return;
+      }
+      cur = cur.parentElement;
+    }
+    const isFocusable =
+      this.tagName === 'BUTTON' ||
+      this.tagName === 'INPUT' ||
+      this.tagName === 'SELECT' ||
+      this.tagName === 'TEXTAREA' ||
+      (this.tagName === 'A' && this.hasAttribute('href')) ||
+      this.hasAttribute('tabindex');
+    if (!isFocusable) return;
+    if (this.ownerDocument.activeElement === this) return;
+    this.ownerDocument.activeElement = this;
+    this.dispatchEvent({ type: 'focusin', bubbles: true, cancelable: false });
+    this.dispatchEvent({ type: 'focus', bubbles: false, cancelable: false });
+  }
+
   dispatchEvent(ev: {
     type: string;
+    key?: string;
+    keyCode?: number;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    isComposing?: boolean;
     target?: any;
     currentTarget?: any;
     bubbles?: boolean;
@@ -910,7 +1030,7 @@ class MockElement extends MockNode {
     ev.defaultPrevented = false;
     ev.propagationStopped = false;
     ev.preventDefault = () => {
-      ev.defaultPrevented = true;
+      if (ev.cancelable) ev.defaultPrevented = true;
     };
     ev.stopPropagation = () => {
       ev.propagationStopped = true;
@@ -950,21 +1070,49 @@ class MockElement extends MockNode {
       }
     }
 
+    if (
+      ev.bubbles &&
+      !ev.propagationStopped &&
+      this.ownerDocument?.defaultView &&
+      typeof this.ownerDocument.defaultView.dispatchEvent === 'function'
+    ) {
+      this.ownerDocument.defaultView.dispatchEvent(ev);
+    }
+
     return !ev.defaultPrevented;
   }
+}
+
+function matchesSimpleSelector(el: MockElement, selector: string): boolean {
+  if (selector === 'a[href]') return el.tagName === 'A' && el.hasAttribute('href');
+  if (selector === 'button') return el.tagName === 'BUTTON';
+  if (selector === 'input') return el.tagName === 'INPUT';
+  if (selector === 'select') return el.tagName === 'SELECT';
+  if (selector === 'textarea') return el.tagName === 'TEXTAREA';
+  if (selector === '[tabindex]') return el.hasAttribute('tabindex');
+  if (selector === '[role="dialog"]') return el.getAttribute('role') === 'dialog';
+  if (selector === '[role="alertdialog"]') return el.getAttribute('role') === 'alertdialog';
+  if (selector === '[role="dialog"][aria-modal="true"]') {
+    return el.getAttribute('role') === 'dialog' && el.getAttribute('aria-modal') === 'true';
+  }
+  return false;
 }
 
 class MockDocument extends MockNode {
   documentElement: MockElement;
   body: MockElement;
   defaultView: any = null;
+  activeElement: MockElement;
+  oninput: ((ev: any) => void) | null = null;
 
   constructor() {
     super(9, undefined as unknown as MockDocument);
     this.ownerDocument = this;
     this.documentElement = new MockElement('html', this);
     this.body = new MockElement('body', this);
+    this.appendChild(this.documentElement);
     this.documentElement.appendChild(this.body);
+    this.activeElement = this.body;
   }
 
   createElement(tag: string) {
@@ -979,6 +1127,9 @@ class MockDocument extends MockNode {
   createComment(text: string) {
     return new MockTextNode(text, this);
   }
+  querySelectorAll(selector: string): MockElement[] {
+    return this.documentElement.querySelectorAll(selector);
+  }
 }
 
 function findElements(root: MockNode, predicate: (el: MockElement) => boolean): MockElement[] {
@@ -992,9 +1143,35 @@ function findElements(root: MockNode, predicate: (el: MockElement) => boolean): 
   return results;
 }
 
+function getDocumentTabbableElements(doc: MockDocument): MockElement[] {
+  return doc.body
+    .querySelectorAll('a[href], button, input, select, textarea, [tabindex]')
+    .filter((el) => {
+      if (el.disabled || el.hasAttribute('disabled')) return false;
+      if (el.tagName === 'INPUT' && el.getAttribute('type') === 'hidden') return false;
+      if (el.tabIndex < 0) return false;
+      let cur: MockElement | null = el;
+      while (cur) {
+        if (
+          cur.inert ||
+          cur.hasAttribute('inert') ||
+          cur.hasAttribute('hidden') ||
+          cur.style.display === 'none' ||
+          cur.style.visibility === 'hidden'
+        ) {
+          return false;
+        }
+        cur = cur.parentElement;
+      }
+      return true;
+    });
+}
+
 async function setupMountedUiTest(options: {
   initialCart: ShopifyCart;
   isEmbedded: boolean;
+  initialOpen?: boolean;
+  strictMode?: boolean;
   fetchCart: (cartId: string) => Promise<ShopifyCart | null>;
   addLines?: (
     cartId: string,
@@ -1018,6 +1195,8 @@ async function setupMountedUiTest(options: {
     run: (refreshToken?: number) => Promise<ShopifyCart | null>,
     refreshToken?: number
   ) => Promise<ShopifyCart | null>;
+  renderBackground?: (controls: { openCart: () => void; closeCart: () => void }) => React.ReactNode;
+  beforeInitialRender?: (doc: MockDocument, win: any) => void;
 }) {
   const prevWindow = (globalThis as any).window;
   const prevDocument = (globalThis as any).document;
@@ -1028,10 +1207,19 @@ async function setupMountedUiTest(options: {
   doc.body.appendChild(rootEl);
 
   const navigatedUrls: string[] = [];
+  const winListeners: Record<string, Array<(ev: any) => void>> = {};
   const win: any = {
     document: doc,
     HTMLIFrameElement: class {},
     __MOCK_EMBEDDED_PREVIEW__: options.isEmbedded,
+    getSelection: () => ({
+      anchorNode: null,
+      anchorOffset: 0,
+      focusNode: null,
+      focusOffset: 0,
+      rangeCount: 0,
+      removeAllRanges: () => {},
+    }),
     location: {
       _href: 'https://merch.sanelowmusiclabel.co.za/',
       get href() {
@@ -1042,8 +1230,20 @@ async function setupMountedUiTest(options: {
         navigatedUrls.push(val);
       },
     },
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    addEventListener: (type: string, fn: (ev: any) => void) => {
+      (winListeners[type] ||= []).push(fn);
+    },
+    removeEventListener: (type: string, fn: (ev: any) => void) => {
+      if (!winListeners[type]) return;
+      winListeners[type] = winListeners[type].filter((f) => f !== fn);
+    },
+    dispatchEvent: (ev: any) => {
+      const list = winListeners[ev.type] || [];
+      for (const fn of list) {
+        if (ev.propagationStopped) break;
+        fn(ev);
+      }
+    },
   };
   doc.defaultView = win;
 
@@ -1051,8 +1251,9 @@ async function setupMountedUiTest(options: {
   (globalThis as any).document = doc;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-  const { createCheckoutPreparationController: _unused, createStoreCartCheckoutCoordinator } =
-    await import('../src/lib/checkout-prep');
+  options.beforeInitialRender?.(doc, win);
+
+  const { createStoreCartCheckoutCoordinator } = await import('../src/lib/checkout-prep');
   const { createRoot } = await import('react-dom/client');
 
   const coordinator = createStoreCartCheckoutCoordinator({
@@ -1068,6 +1269,7 @@ async function setupMountedUiTest(options: {
   let setExternalCartProp: ((cart: ShopifyCart | null, token?: number | null) => void) | null =
     null;
   let setOpenState: ((open: boolean) => void) | null = null;
+  let currentIsOpen = options.initialOpen ?? true;
   let externalCartOverride: { active: boolean; cart: ShopifyCart | null; token: number | null } = {
     active: false,
     cart: null,
@@ -1076,8 +1278,9 @@ async function setupMountedUiTest(options: {
 
   function HarnessParent() {
     const [cartState, setCartState] = React.useState(() => coordinator.getState());
-    const [isOpen, setIsOpen] = React.useState(true);
+    const [isOpen, setIsOpen] = React.useState(options.initialOpen ?? true);
     const [overrideTick, setOverrideTick] = React.useState(0);
+    currentIsOpen = isOpen;
 
     React.useEffect(() => {
       setCartState(coordinator.getState());
@@ -1098,40 +1301,52 @@ async function setupMountedUiTest(options: {
       ? externalCartOverride.token
       : cartState.lastRefreshCommitToken;
 
-    return React.createElement(CartDrawer, {
-      key: `drawer-${overrideTick >= 0 ? 'stable' : 'stable'}`,
-      isOpen,
-      onClose: () => setIsOpen(false),
-      cart: activeCart,
-      isLoading: cartState.isLoading,
-      cartMutationEpoch: cartState.mutationEpoch,
-      lastRefreshCommitToken: activeToken,
-      getIsMutationPending: () => coordinator.isMutationPending(),
-      onUpdateQuantity: (lineId, qty) => {
-        void coordinator.updateQuantity(lineId, qty);
-      },
-      onRemoveItem: (lineId) => {
-        void coordinator.removeItem(lineId);
-      },
-      onApplyDiscount: (code) => coordinator.applyDiscount(code),
-      onBrowseProducts: () => setIsOpen(false),
-      onRevalidateCart: (refreshToken) =>
-        options.wrapRevalidate
-          ? options.wrapRevalidate(
-              (tok) => coordinator.revalidateForCheckout(tok),
-              refreshToken
-            )
-          : coordinator.revalidateForCheckout(refreshToken),
-    });
+    return React.createElement(
+      React.Fragment,
+      null,
+      options.renderBackground?.({
+        openCart: () => setIsOpen(true),
+        closeCart: () => setIsOpen(false),
+      }),
+      React.createElement(CartDrawer, {
+        key: `drawer-${overrideTick >= 0 ? 'stable' : 'stable'}`,
+        isOpen,
+        onClose: () => setIsOpen(false),
+        cart: activeCart,
+        isLoading: cartState.isLoading,
+        cartMutationEpoch: cartState.mutationEpoch,
+        lastRefreshCommitToken: activeToken,
+        getIsMutationPending: () => coordinator.isMutationPending(),
+        onUpdateQuantity: (lineId, qty) => {
+          void coordinator.updateQuantity(lineId, qty);
+        },
+        onRemoveItem: (lineId) => {
+          void coordinator.removeItem(lineId);
+        },
+        onApplyDiscount: (code) => coordinator.applyDiscount(code),
+        onBrowseProducts: () => setIsOpen(false),
+        onRevalidateCart: (refreshToken) =>
+          options.wrapRevalidate
+            ? options.wrapRevalidate(
+                (tok) => coordinator.revalidateForCheckout(tok),
+                refreshToken
+              )
+            : coordinator.revalidateForCheckout(refreshToken),
+      })
+    );
   }
 
   const root = createRoot(rootEl as unknown as Element);
+  const appElement = options.strictMode
+    ? React.createElement(React.StrictMode, null, React.createElement(HarnessParent))
+    : React.createElement(HarnessParent);
+
   await React.act(async () => {
-    root.render(React.createElement(HarnessParent));
+    root.render(appElement);
   });
 
   const getById = (id: string) =>
-    findElements(rootEl, (el) => el.id === id)[0] ?? null;
+    findElements(doc.body, (el) => el.id === id)[0] ?? null;
 
   const getByAriaLabel = (label: string) =>
     findElements(rootEl, (el) => el.getAttribute('aria-label') === label)[0] ?? null;
@@ -1145,6 +1360,7 @@ async function setupMountedUiTest(options: {
   const click = async (el: MockElement) => {
     let defaultPrevented = false;
     await React.act(async () => {
+      el.focus();
       const notPrevented = el.dispatchEvent({
         type: 'click',
         bubbles: true,
@@ -1155,10 +1371,65 @@ async function setupMountedUiTest(options: {
     return { defaultPrevented };
   };
 
-  const cleanup = async () => {
+  const pressKey = async (
+    key: string,
+    opts?: {
+      target?: MockElement;
+      shiftKey?: boolean;
+      altKey?: boolean;
+      ctrlKey?: boolean;
+      metaKey?: boolean;
+      isComposing?: boolean;
+    }
+  ) => {
+    let defaultPrevented = false;
+    let propagationStopped = false;
+    await React.act(async () => {
+      const dispatchTarget = opts?.target || doc.activeElement || doc.body;
+      const ev: any = {
+        type: 'keydown',
+        key,
+        shiftKey: Boolean(opts?.shiftKey),
+        altKey: Boolean(opts?.altKey),
+        ctrlKey: Boolean(opts?.ctrlKey),
+        metaKey: Boolean(opts?.metaKey),
+        isComposing: Boolean(opts?.isComposing),
+        bubbles: true,
+        cancelable: true,
+      };
+      const notPrevented = dispatchTarget.dispatchEvent(ev);
+      defaultPrevented = !notPrevented;
+      propagationStopped = Boolean(ev.propagationStopped);
+
+      // Simulate native browser Tab advancement when keydown was NOT prevented
+      if (key === 'Tab' && !defaultPrevented) {
+        const tabbables = getDocumentTabbableElements(doc);
+        if (tabbables.length > 0) {
+          const curIdx = tabbables.indexOf(doc.activeElement);
+          if (opts?.shiftKey) {
+            const prevIdx = curIdx <= 0 ? tabbables.length - 1 : curIdx - 1;
+            tabbables[prevIdx].focus();
+          } else {
+            const nextIdx = curIdx === -1 || curIdx + 1 >= tabbables.length ? 0 : curIdx + 1;
+            tabbables[nextIdx].focus();
+          }
+        }
+      }
+    });
+    return { defaultPrevented, propagationStopped };
+  };
+
+  let isUnmounted = false;
+  const unmount = async () => {
+    if (isUnmounted) return;
+    isUnmounted = true;
     await React.act(async () => {
       root.unmount();
     });
+  };
+
+  const cleanup = async () => {
+    await unmount();
     (globalThis as any).window = prevWindow;
     (globalThis as any).document = prevDocument;
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = prevActEnv;
@@ -1166,13 +1437,17 @@ async function setupMountedUiTest(options: {
 
   return {
     coordinator,
+    doc,
     rootEl,
     navigatedUrls,
     win,
+    isOpen: () => currentIsOpen,
     getById,
     getByAriaLabel,
     getButtonsByText,
     click,
+    pressKey,
+    unmount,
     setOpen: async (open: boolean) => {
       await React.act(async () => {
         setOpenState?.(open);
@@ -1610,4 +1885,758 @@ describe('Real Mounted UI Checkout Coordination Regressions', () => {
     }
   });
 });
+
+describe('Mounted UI CartDrawer Keyboard & Dialog Accessibility', () => {
+  it('14. Provides modal dialog semantics tied to visible heading, isolates background, moves initial focus, and traps Tab / Shift+Tab inside drawer', async () => {
+    const cart = makeCart();
+    const harness = await setupMountedUiTest({
+      initialCart: cart,
+      isEmbedded: false,
+      fetchCart: async () => cart,
+      renderBackground: () =>
+        React.createElement(
+          'main',
+          { id: 'bg-main-content' },
+          React.createElement('button', { id: 'bg-shop-btn', type: 'button' }, 'Shop Merch'),
+          React.createElement('a', { id: 'bg-footer-link', href: '/faq' }, 'FAQ')
+        ),
+    });
+
+    try {
+      const dialog = harness.getById('cart-drawer-container');
+      const heading = harness.getById('cart-drawer-heading');
+      const closeBtn = harness.getById('close-cart-drawer-btn');
+      const bgMain = harness.getById('bg-main-content');
+      const bgBtn = harness.getById('bg-shop-btn');
+
+      assert.ok(dialog && heading && closeBtn && bgMain && bgBtn);
+      assert.equal(dialog.getAttribute('role'), 'dialog');
+      assert.equal(dialog.getAttribute('aria-modal'), 'true');
+      assert.equal(dialog.getAttribute('aria-labelledby'), heading.id);
+      assert.equal(heading.textContent.trim(), 'Merch Bag (2)');
+
+      // Initial focus moves into the drawer onto the close button
+      assert.ok(
+        harness.doc.activeElement === closeBtn,
+        `Expected initial focus on closeBtn, got ${harness.doc.activeElement?.tagName}#${harness.doc.activeElement?.id}`
+      );
+
+      // Background content is isolated from keyboard & screen readers
+      assert.equal(bgMain.hasAttribute('inert'), true);
+      assert.equal(bgMain.getAttribute('aria-hidden'), 'true');
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+
+      // Forward Tab cycles through drawer controls and wraps from last control back to closeBtn
+      const seenIds: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        await harness.pressKey('Tab');
+        assert.ok(
+          dialog.contains(harness.doc.activeElement),
+          'Forward Tab must keep focus strictly inside CartDrawer'
+        );
+        assert.ok(harness.doc.activeElement !== bgBtn, 'Focus must not land on background button');
+        seenIds.push(harness.doc.activeElement.id || harness.doc.activeElement.textContent.trim());
+      }
+      // Last control is proceed-to-checkout-btn -> next Tab wraps to closeBtn
+      assert.equal(harness.doc.activeElement.id, 'proceed-to-checkout-btn');
+      const wrapForward = await harness.pressKey('Tab');
+      assert.equal(wrapForward.defaultPrevented, true);
+      assert.ok(
+        harness.doc.activeElement === closeBtn,
+        `Expected forward Tab wrap to closeBtn, got ${harness.doc.activeElement?.tagName}#${harness.doc.activeElement?.id}`
+      );
+
+      // Reverse Shift+Tab from closeBtn wraps to last focusable control (#proceed-to-checkout-btn)
+      const wrapReverse = await harness.pressKey('Tab', { shiftKey: true });
+      assert.equal(wrapReverse.defaultPrevented, true);
+      assert.equal(harness.doc.activeElement.id, 'proceed-to-checkout-btn');
+
+      // Programmatic focus attempting to land on background while open is redirected back inside drawer
+      bgMain.inert = false;
+      bgMain.removeAttribute('inert');
+      bgBtn.focus();
+      assert.ok(
+        dialog.contains(harness.doc.activeElement),
+        'Focusin guard must keep stray background focus inside open drawer'
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('15. Escape closes bag via shared close handler and synchronously invalidates checkout (never navigates or restores link on late response)', async () => {
+    const initialCart = makeCart({
+      checkoutUrl: 'https://sx71id-uy.myshopify.com/cart/c/cached-esc',
+    });
+    const freshCart = makeCart({
+      checkoutUrl: 'https://sx71id-uy.myshopify.com/cart/c/fresh-after-esc-must-not-run',
+    });
+
+    // Subcase A: Standalone & Embedded in-flight checkout invalidated immediately on Escape
+    for (const isEmbedded of [false, true]) {
+      const fetchDeferred = createDeferred<ShopifyCart | null>();
+      const harness = await setupMountedUiTest({
+        initialCart,
+        isEmbedded,
+        fetchCart: () => fetchDeferred.promise,
+      });
+
+      try {
+        await React.act(async () => {
+          harness.getById('proceed-to-checkout-btn')!.dispatchEvent({
+            type: 'click',
+            bubbles: true,
+            cancelable: true,
+          });
+        });
+
+        // Close via Escape while refresh is in flight
+        const escResult = await harness.pressKey('Escape');
+        assert.equal(escResult.defaultPrevented, true);
+        assert.equal(harness.isOpen(), false);
+        assert.equal(harness.getById('cart-drawer-container'), null);
+
+        // Late checkout response arrives after Escape
+        await React.act(async () => {
+          fetchDeferred.resolve(freshCart);
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        assert.deepEqual(
+          harness.navigatedUrls,
+          [],
+          'Checkout response arriving after Escape must never navigate'
+        );
+
+        // Reopening must not surface a stale prepared link
+        await harness.setOpen(true);
+        assert.equal(
+          harness.getById('open-secure-checkout-btn'),
+          null,
+          'Reopening after Escape-invalidated checkout must not restore a prepared link'
+        );
+      } finally {
+        await harness.cleanup();
+      }
+    }
+
+    // Subcase B: Escape after an embedded checkout link was already prepared clears it
+    {
+      const harness = await setupMountedUiTest({
+        initialCart,
+        isEmbedded: true,
+        fetchCart: async () => freshCart,
+      });
+
+      try {
+        await harness.click(harness.getById('proceed-to-checkout-btn')!);
+        assert.ok(harness.getById('open-secure-checkout-btn'));
+
+        await harness.pressKey('Escape');
+        assert.equal(harness.isOpen(), false);
+
+        await harness.setOpen(true);
+        assert.equal(
+          harness.getById('open-secure-checkout-btn'),
+          null,
+          'Prepared link must be cleared when closed via Escape'
+        );
+      } finally {
+        await harness.cleanup();
+      }
+    }
+  });
+
+  it('16. Scopes Escape to active CartDrawer so it does not close unrelated overlays, leak to underlying window listeners, or interfere with form controls', async () => {
+    const cart = makeCart();
+    let windowEscapeCount = 0;
+
+    const harness = await setupMountedUiTest({
+      initialCart: cart,
+      isEmbedded: false,
+      fetchCart: async () => cart,
+      beforeInitialRender: (_doc, win) => {
+        win.addEventListener('keydown', (e: any) => {
+          if (e.key === 'Escape') windowEscapeCount += 1;
+        });
+      },
+      renderBackground: () =>
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement('input', { id: 'external-search-input', type: 'text' }),
+          React.createElement(
+            'div',
+            { id: 'unrelated-modal', role: 'dialog', 'aria-modal': 'true' },
+            React.createElement('input', { id: 'unrelated-modal-input', type: 'text' })
+          )
+        ),
+    });
+
+    try {
+      // Because #unrelated-modal has role="dialog" & aria-modal="true", let's verify active focus inside it prevents CartDrawer from stealing Escape
+      const unrelatedInput = harness.getById('unrelated-modal-input')!;
+      await React.act(async () => {
+        unrelatedInput.focus();
+      });
+      await harness.pressKey('Escape', { target: unrelatedInput });
+      assert.equal(
+        harness.isOpen(),
+        true,
+        'Escape dispatched inside an unrelated modal dialog must not close CartDrawer'
+      );
+
+      // Move focus back into CartDrawer's promo input
+      const promoInput = harness.doc.body
+        .querySelectorAll('input')
+        .find((i) => i.getAttribute('placeholder') === 'Shopify discount code')!;
+      assert.ok(promoInput);
+
+      // Remove unrelated modal so CartDrawer is topmost active modal
+      const unrelatedModal = harness.getById('unrelated-modal')!;
+      unrelatedModal.parentNode!.removeChild(unrelatedModal);
+
+      // Escape during IME composition (isComposing: true) must NOT close CartDrawer
+      await React.act(async () => {
+        promoInput.focus();
+      });
+      await harness.pressKey('Escape', { target: promoInput, isComposing: true });
+      assert.equal(
+        harness.isOpen(),
+        true,
+        'Escape during IME composition on form input must not close CartDrawer'
+      );
+
+      // Escape on an external non-modal form input must NOT close CartDrawer
+      const externalInput = harness.getById('external-search-input')!;
+      await harness.pressKey('Escape', { target: externalInput });
+      assert.equal(
+        harness.isOpen(),
+        true,
+        'Escape targeted at a non-drawer form control must not close CartDrawer'
+      );
+
+      // Escape on an aria-expanded="true" control inside CartDrawer must NOT close CartDrawer
+      promoInput.setAttribute('aria-expanded', 'true');
+      await harness.pressKey('Escape', { target: promoInput });
+      assert.equal(
+        harness.isOpen(),
+        true,
+        'Escape on an expanded popup/combobox control must not close CartDrawer'
+      );
+      promoInput.removeAttribute('aria-expanded');
+
+      // Normal Escape inside CartDrawer closes CartDrawer and stops propagation from reaching window listeners
+      const escapesBeforeClose = windowEscapeCount;
+      await harness.pressKey('Escape', { target: promoInput });
+      assert.equal(harness.isOpen(), false);
+      assert.equal(
+        windowEscapeCount,
+        escapesBeforeClose,
+        'Handled Escape inside CartDrawer must stopPropagation so underlying window overlays do not also react'
+      );
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('17. Restores focus to opener button on close when connected & usable, and skips disconnected/disabled openers', async () => {
+    const cart = makeCart();
+    const harness = await setupMountedUiTest({
+      initialCart: cart,
+      isEmbedded: false,
+      initialOpen: false,
+      fetchCart: async () => cart,
+      renderBackground: ({ openCart }) =>
+        React.createElement(
+          'header',
+          { id: 'app-header' },
+          React.createElement(
+            'button',
+            { id: 'open-cart-trigger', type: 'button', onClick: openCart },
+            'Open Bag'
+          )
+        ),
+    });
+
+    try {
+      const opener = harness.getById('open-cart-trigger')!;
+      const header = harness.getById('app-header')!;
+
+      // Open via keyboard/click from focused opener
+      await harness.click(opener);
+      assert.equal(harness.isOpen(), true);
+      assert.ok(
+        harness.doc.activeElement === harness.getById('close-cart-drawer-btn'),
+        `Expected focus on close button, got ${harness.doc.activeElement?.tagName}#${harness.doc.activeElement?.id}`
+      );
+      assert.equal(header.hasAttribute('inert'), true);
+
+      // Close via Escape -> background inert removed first, then focus returns to opener
+      await harness.pressKey('Escape');
+      assert.equal(harness.isOpen(), false);
+      assert.equal(header.hasAttribute('inert'), false);
+      assert.ok(
+        harness.doc.activeElement === opener,
+        `Expected focus restored to opener after Escape, got ${harness.doc.activeElement?.tagName}#${harness.doc.activeElement?.id}`
+      );
+
+      // Open again, then click '×' -> focus also returns to opener
+      await harness.click(opener);
+      await harness.click(harness.getById('close-cart-drawer-btn')!);
+      assert.ok(
+        harness.doc.activeElement === opener,
+        `Expected focus restored to opener after close click, got ${harness.doc.activeElement?.tagName}#${harness.doc.activeElement?.id}`
+      );
+
+      // Open again, then mark opener disabled before closing -> focus must NOT return to disabled opener
+      await harness.click(opener);
+      opener.disabled = true;
+      await harness.pressKey('Escape');
+      assert.equal(harness.isOpen(), false);
+      assert.ok(harness.doc.activeElement !== opener, 'Must not restore focus to disabled opener');
+
+      // Re-enable, open again, then disconnect opener before closing -> must not focus disconnected node
+      opener.disabled = false;
+      await harness.click(opener);
+      opener.parentNode!.removeChild(opener);
+      await harness.pressKey('Escape');
+      assert.equal(harness.isOpen(), false);
+      assert.ok(harness.doc.activeElement !== opener, 'Must not restore focus to disconnected opener');
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('18. Cleans up listeners and background restrictions on close/unmount while preserving restrictions owned by other overlays', async () => {
+    const cart = makeCart();
+    const harness = await setupMountedUiTest({
+      initialCart: cart,
+      isEmbedded: false,
+      initialOpen: false,
+      fetchCart: async () => cart,
+      beforeInitialRender: (doc) => {
+        doc.body.style.overflow = 'hidden';
+      },
+      renderBackground: () =>
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement('main', { id: 'normal-bg' }, 'Main Store'),
+          React.createElement(
+            'aside',
+            { id: 'pre-hidden-overlay-bg', 'aria-hidden': 'true' },
+            'Already Hidden'
+          ),
+          React.createElement(
+            'section',
+            { id: 'explicit-visible-bg', 'aria-hidden': 'false' },
+            'Explicit Visible'
+          )
+        ),
+    });
+
+    try {
+      const normalBg = harness.getById('normal-bg')!;
+      const preHiddenBg = harness.getById('pre-hidden-overlay-bg')!;
+      const explicitVisibleBg = harness.getById('explicit-visible-bg')!;
+
+      // Mark pre-hidden element as inert prior to opening CartDrawer (e.g. owned by another overlay)
+      preHiddenBg.inert = true;
+      preHiddenBg.setAttribute('inert', '');
+
+      // Open CartDrawer -> normalBg and explicitVisibleBg become restricted; pre-hidden keeps its state
+      await harness.setOpen(true);
+      assert.equal(normalBg.hasAttribute('inert'), true);
+      assert.equal(normalBg.getAttribute('aria-hidden'), 'true');
+      assert.equal(explicitVisibleBg.getAttribute('aria-hidden'), 'true');
+      assert.equal((harness.doc.listeners.keydown || []).length, 1);
+      assert.equal((harness.doc.listeners.focusin || []).length, 1);
+
+      // Close CartDrawer -> normalBg restored, explicitVisibleBg restores 'false', pre-hidden & body overflow preserved!
+      await harness.setOpen(false);
+      assert.equal(normalBg.hasAttribute('inert'), false);
+      assert.equal(normalBg.getAttribute('aria-hidden'), null);
+      assert.equal(explicitVisibleBg.getAttribute('aria-hidden'), 'false');
+      assert.equal(preHiddenBg.hasAttribute('inert'), true);
+      assert.equal(preHiddenBg.getAttribute('aria-hidden'), 'true');
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+      assert.equal((harness.doc.listeners.keydown || []).length, 0);
+      assert.equal((harness.doc.listeners.focusin || []).length, 0);
+
+      // Now test body overflow 'clip' preservation and cleanup on direct UNMOUNT while open
+      harness.doc.body.style.overflow = 'clip';
+      await harness.setOpen(true);
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+      assert.equal(normalBg.hasAttribute('inert'), true);
+
+      await harness.unmount();
+      assert.equal(harness.doc.body.style.overflow, 'clip');
+      assert.equal(normalBg.hasAttribute('inert'), false);
+      assert.equal(normalBg.getAttribute('aria-hidden'), null);
+      assert.equal(preHiddenBg.hasAttribute('inert'), true);
+      assert.equal(preHiddenBg.getAttribute('aria-hidden'), 'true');
+      assert.equal((harness.doc.listeners.keydown || []).length, 0);
+      assert.equal((harness.doc.listeners.focusin || []).length, 0);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('19. Works cleanly under React.StrictMode double setup/cleanup without duplicating listeners or losing focus/restoration', async () => {
+    const initialCart = makeCart({
+      checkoutUrl: 'https://sx71id-uy.myshopify.com/cart/c/strict-cached',
+    });
+    const freshCart = makeCart({
+      checkoutUrl: 'https://sx71id-uy.myshopify.com/cart/c/strict-late-should-not-nav',
+    });
+    const fetchDeferred = createDeferred<ShopifyCart | null>();
+
+    const harness = await setupMountedUiTest({
+      initialCart,
+      isEmbedded: false,
+      initialOpen: false,
+      strictMode: true,
+      fetchCart: () => fetchDeferred.promise,
+      renderBackground: ({ openCart }) =>
+        React.createElement(
+          'div',
+          { id: 'strict-bg-shell' },
+          React.createElement(
+            'button',
+            { id: 'strict-opener-btn', type: 'button', onClick: openCart },
+            'Open Bag'
+          )
+        ),
+    });
+
+    try {
+      const opener = harness.getById('strict-opener-btn')!;
+      const bgShell = harness.getById('strict-bg-shell')!;
+
+      // Open drawer under StrictMode (runs setup -> cleanup -> setup)
+      await harness.click(opener);
+      assert.equal(harness.isOpen(), true);
+      assert.ok(
+        harness.doc.activeElement === harness.getById('close-cart-drawer-btn'),
+        `Expected focus on close button under StrictMode, got ${harness.doc.activeElement?.tagName}#${harness.doc.activeElement?.id}`
+      );
+      assert.equal(bgShell.hasAttribute('inert'), true);
+      assert.equal(bgShell.getAttribute('aria-hidden'), 'true');
+      assert.equal(
+        (harness.doc.listeners.keydown || []).length,
+        1,
+        'StrictMode must not leak duplicate keydown listeners'
+      );
+      assert.equal(
+        (harness.doc.listeners.focusin || []).length,
+        1,
+        'StrictMode must not leak duplicate focusin listeners'
+      );
+
+      // Start checkout refresh, then press Escape -> closes, invalidates request, restores background & opener focus
+      await React.act(async () => {
+        harness.getById('proceed-to-checkout-btn')!.dispatchEvent({
+          type: 'click',
+          bubbles: true,
+          cancelable: true,
+        });
+      });
+
+      await harness.pressKey('Escape');
+      assert.equal(harness.isOpen(), false);
+      assert.equal(bgShell.hasAttribute('inert'), false);
+      assert.equal(bgShell.getAttribute('aria-hidden'), null);
+      assert.equal((harness.doc.listeners.keydown || []).length, 0);
+      assert.equal((harness.doc.listeners.focusin || []).length, 0);
+      assert.ok(
+        harness.doc.activeElement === opener,
+        `Expected focus restored to opener under StrictMode, got ${harness.doc.activeElement?.tagName}#${harness.doc.activeElement?.id}`
+      );
+
+      // Late checkout resolution after Escape under StrictMode must still not navigate
+      await React.act(async () => {
+        fetchDeferred.resolve(freshCart);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      assert.deepEqual(harness.navigatedUrls, []);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('20. Overlapping overlay acquiring restrictions after CartDrawer opens keeps background restricted and scroll locked when CartDrawer closes or unmounts first', async () => {
+    const { acquireOverlayRestrictions } = await import('../src/lib/overlay-restrictions');
+    const { createRoot } = await import('react-dom/client');
+
+    const cart = makeCart();
+    let setSecondaryOpen: ((open: boolean) => void) | null = null;
+
+    function SecondaryOverlay({ open }: { open: boolean }) {
+      const overlayRef = React.useRef<HTMLDivElement | null>(null);
+      React.useEffect(() => {
+        if (!open || !overlayRef.current) return;
+        const handle = acquireOverlayRestrictions({
+          overlayEl: overlayRef.current,
+          doc: document,
+          lockScroll: true,
+          ownerLabel: 'secondary-overlay',
+        });
+        return () => {
+          handle.release();
+        };
+      }, [open]);
+
+      if (!open) return null;
+      return React.createElement(
+        'div',
+        { ref: overlayRef, id: 'secondary-overlay-backdrop' },
+        React.createElement(
+          'div',
+          { id: 'secondary-overlay-dialog', role: 'dialog', 'aria-modal': 'true' },
+          'Secondary Overlay'
+        )
+      );
+    }
+
+    function SecondaryHost() {
+      const [open, setOpen] = React.useState(false);
+      setSecondaryOpen = setOpen;
+      return React.createElement(SecondaryOverlay, { open });
+    }
+
+    const harness = await setupMountedUiTest({
+      initialCart: cart,
+      isEmbedded: false,
+      initialOpen: false,
+      fetchCart: async () => cart,
+      beforeInitialRender: (doc) => {
+        doc.body.style.overflow = 'clip';
+      },
+      renderBackground: ({ openCart }) =>
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(
+            'main',
+            { id: 'overlap-bg-main' },
+            React.createElement(
+              'button',
+              { id: 'overlap-opener-btn', type: 'button', onClick: openCart },
+              'Open Cart'
+            )
+          ),
+          React.createElement(
+            'section',
+            { id: 'overlap-explicit-visible', 'aria-hidden': 'false' },
+            'Explicitly Visible'
+          ),
+          React.createElement(
+            'aside',
+            { id: 'overlap-pre-restricted', 'aria-hidden': 'true' },
+            'Pre-restricted'
+          ),
+          React.createElement(SecondaryHost)
+        ),
+    });
+
+    try {
+      const bgMain = harness.getById('overlap-bg-main')!;
+      const opener = harness.getById('overlap-opener-btn')!;
+      const explicitVisible = harness.getById('overlap-explicit-visible')!;
+      const preRestricted = harness.getById('overlap-pre-restricted')!;
+      preRestricted.inert = true;
+      preRestricted.setAttribute('inert', '');
+
+      // 1. Open CartDrawer from opener -> CartDrawer acquires restrictions first
+      await harness.click(opener);
+      assert.equal(harness.isOpen(), true);
+      assert.equal(bgMain.hasAttribute('inert'), true);
+      assert.equal(bgMain.getAttribute('aria-hidden'), 'true');
+      assert.equal(explicitVisible.getAttribute('aria-hidden'), 'true');
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+
+      // 2. While CartDrawer is open, another overlay opens and acquires overlapping restrictions
+      await React.act(async () => {
+        setSecondaryOpen?.(true);
+      });
+      assert.ok(harness.getById('secondary-overlay-dialog'));
+      assert.equal(bgMain.hasAttribute('inert'), true);
+      assert.equal(bgMain.getAttribute('aria-hidden'), 'true');
+      assert.equal(explicitVisible.getAttribute('aria-hidden'), 'true');
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+
+      // 3. CartDrawer closes FIRST while secondary overlay remains open
+      await harness.click(harness.getById('close-cart-drawer-btn')!);
+      assert.equal(harness.isOpen(), false);
+      assert.equal(harness.getById('cart-drawer-container'), null);
+
+      // Background MUST remain restricted and scrolling MUST remain locked!
+      assert.equal(bgMain.hasAttribute('inert'), true, 'Background must stay inert while secondary overlay owns it');
+      assert.equal(
+        bgMain.getAttribute('aria-hidden'),
+        'true',
+        'Background must stay aria-hidden while secondary overlay owns it'
+      );
+      assert.equal(
+        explicitVisible.hasAttribute('inert'),
+        true,
+        'Explicit-visible section must stay inert while secondary overlay owns it'
+      );
+      assert.equal(
+        explicitVisible.getAttribute('aria-hidden'),
+        'true',
+        'Explicit-visible section must NOT revert to "false" while secondary overlay owns it'
+      );
+      assert.equal(
+        harness.doc.body.style.overflow,
+        'hidden',
+        'Body scroll must stay locked while secondary overlay owns it'
+      );
+      assert.ok(
+        harness.doc.activeElement !== opener,
+        'CartDrawer must not restore focus into still-inert background while secondary overlay is active'
+      );
+
+      // 4. Secondary overlay closes SECOND -> original attributes and 'clip' overflow must now be restored!
+      await React.act(async () => {
+        setSecondaryOpen?.(false);
+      });
+      assert.equal(bgMain.hasAttribute('inert'), false);
+      assert.equal(bgMain.getAttribute('aria-hidden'), null);
+      assert.equal(explicitVisible.hasAttribute('inert'), false);
+      assert.equal(explicitVisible.getAttribute('aria-hidden'), 'false');
+      assert.equal(preRestricted.hasAttribute('inert'), true);
+      assert.equal(preRestricted.getAttribute('aria-hidden'), 'true');
+      assert.equal(harness.doc.body.style.overflow, 'clip');
+
+      // 5. Also verify direct CartDrawer UNMOUNT while secondary overlay remains open
+      const stageEl = harness.doc.createElement('div');
+      const stageBgEl = harness.doc.createElement('main');
+      const stageVisibleEl = harness.doc.createElement('section');
+      stageVisibleEl.setAttribute('aria-hidden', 'false');
+      const cartMountEl = harness.doc.createElement('div');
+      const secondaryMountEl = harness.doc.createElement('div');
+      stageEl.appendChild(stageBgEl);
+      stageEl.appendChild(stageVisibleEl);
+      stageEl.appendChild(cartMountEl);
+      stageEl.appendChild(secondaryMountEl);
+      harness.doc.body.appendChild(stageEl);
+
+      const cartRoot = createRoot(cartMountEl as unknown as Element);
+      const secondaryRoot = createRoot(secondaryMountEl as unknown as Element);
+
+      await React.act(async () => {
+        cartRoot.render(
+          React.createElement(CartDrawer, {
+            isOpen: true,
+            onClose: () => {},
+            cart,
+            isLoading: false,
+            onUpdateQuantity: () => {},
+            onRemoveItem: () => {},
+            onApplyDiscount: async () => ({ success: false }),
+            onBrowseProducts: () => {},
+          })
+        );
+      });
+      await React.act(async () => {
+        secondaryRoot.render(React.createElement(SecondaryOverlay, { open: true }));
+      });
+      assert.equal(stageBgEl.hasAttribute('inert'), true);
+      assert.equal(stageBgEl.getAttribute('aria-hidden'), 'true');
+      assert.equal(stageVisibleEl.getAttribute('aria-hidden'), 'true');
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+
+      // Unmount CartDrawer's entire React root first while SecondaryOverlay stays mounted
+      await React.act(async () => {
+        cartRoot.unmount();
+      });
+      assert.equal(stageBgEl.hasAttribute('inert'), true);
+      assert.equal(stageBgEl.getAttribute('aria-hidden'), 'true');
+      assert.equal(stageVisibleEl.hasAttribute('inert'), true);
+      assert.equal(stageVisibleEl.getAttribute('aria-hidden'), 'true');
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+
+      // Unmount SecondaryOverlay -> all original restrictions restored cleanly
+      await React.act(async () => {
+        secondaryRoot.unmount();
+      });
+      assert.equal(stageBgEl.hasAttribute('inert'), false);
+      assert.equal(stageBgEl.getAttribute('aria-hidden'), null);
+      assert.equal(stageVisibleEl.hasAttribute('inert'), false);
+      assert.equal(stageVisibleEl.getAttribute('aria-hidden'), 'false');
+      assert.equal(harness.doc.body.style.overflow, 'clip');
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('21. Partial overlapping ownership releases unshared targets immediately, preserves shared ones, and handles idempotent releases', async () => {
+    const { acquireInertRestriction, acquireBodyScrollLock } = await import(
+      '../src/lib/overlay-restrictions'
+    );
+
+    const cart = makeCart();
+    const harness = await setupMountedUiTest({
+      initialCart: cart,
+      isEmbedded: false,
+      initialOpen: true,
+      fetchCart: async () => cart,
+      beforeInitialRender: (doc) => {
+        doc.body.style.overflow = 'auto';
+      },
+      renderBackground: () =>
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement('main', { id: 'partial-main' }, 'Main'),
+          React.createElement('footer', { id: 'partial-footer', 'aria-hidden': 'false' }, 'Footer')
+        ),
+    });
+
+    try {
+      const mainEl = harness.getById('partial-main')!;
+      const footerEl = harness.getById('partial-footer')!;
+
+      assert.equal(mainEl.hasAttribute('inert'), true);
+      assert.equal(mainEl.getAttribute('aria-hidden'), 'true');
+      assert.equal(footerEl.hasAttribute('inert'), true);
+      assert.equal(footerEl.getAttribute('aria-hidden'), 'true');
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+
+      // Secondary owner acquires ONLY inert on mainEl and scroll lock on body (not footerEl or aria-hidden)
+      const secondaryInert = acquireInertRestriction(mainEl as unknown as HTMLElement);
+      const secondaryScroll = acquireBodyScrollLock(harness.doc.body as unknown as HTMLElement);
+
+      // CartDrawer closes first
+      await harness.setOpen(false);
+
+      // Unshared restrictions (footerEl & mainEl's aria-hidden) are released immediately
+      assert.equal(footerEl.hasAttribute('inert'), false);
+      assert.equal(footerEl.getAttribute('aria-hidden'), 'false');
+      assert.equal(mainEl.getAttribute('aria-hidden'), null);
+
+      // Shared restrictions (mainEl inert & body scroll lock) stay held by secondary owner
+      assert.equal(mainEl.hasAttribute('inert'), true);
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+
+      // Releasing secondary handles twice is idempotent and restores remaining restrictions
+      secondaryInert.release();
+      secondaryInert.release();
+      assert.equal(mainEl.hasAttribute('inert'), false);
+      assert.equal(harness.doc.body.style.overflow, 'hidden');
+
+      secondaryScroll.release();
+      secondaryScroll.release();
+      assert.equal(harness.doc.body.style.overflow, 'auto');
+    } finally {
+      await harness.cleanup();
+    }
+  });
+});
+
+
 
