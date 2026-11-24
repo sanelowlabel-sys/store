@@ -176,23 +176,20 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       )}
 
-      {/* Main Bar: CSS Grid with 1fr auto 1fr on collapsed viewports (< xl) guarantees exact center alignment */}
+      {/* Main Bar: Left-aligned hamburger + logo on collapsed viewports (< xl), right-aligned controls, full nav on xl+ */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center h-18 sm:h-20 gap-2 sm:gap-4 xl:flex xl:items-center xl:justify-between w-full">
-          {/* Col 1 on collapsed viewports (< xl): Left-aligned mobile hamburger menu trigger */}
-          <div className="flex items-center justify-start xl:hidden shrink-0 z-10">
+        <div className="flex items-center justify-between h-18 sm:h-20 gap-2 sm:gap-4 w-full">
+          {/* Left group: Mobile hamburger menu trigger (< xl) immediately followed by brand logo */}
+          <div className="flex items-center gap-2 sm:gap-2.5 xl:gap-0 shrink-0 z-10">
             <button
               id="mobile-menu-btn"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2 text-[#0f172a] hover:text-red-600 rounded-xl hover:bg-[#f8fafc] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 cursor-pointer"
+              className="xl:hidden p-2 text-[#0f172a] hover:text-red-600 rounded-xl hover:bg-[#f8fafc] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 cursor-pointer"
               aria-label="Toggle menu"
             >
               {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
-          </div>
 
-          {/* Col 2 on collapsed (< xl): Mathematically centered brand logo; Left-aligned on desktop (xl+) */}
-          <div className="flex items-center justify-center xl:block shrink-0 z-10">
             <a
               href="/"
               id="navbar-brand-logo"
