@@ -1,5 +1,6 @@
 import React from 'react';
 import { Truck, ShieldCheck, Zap, Scissors, CheckCircle2 } from 'lucide-react';
+import { STORE_CONTACT_EMAIL } from '../lib/shopify';
 import merchCraftsmanshipImg from '../assets/images/sanelow_merch_one_1792052950533.jpg';
 import merchDropsImg from '../assets/images/sanelow_merch_two_1792052967801.jpg';
 
@@ -30,10 +31,10 @@ export const BrandStorySection: React.FC = () => {
               <div className="p-4 sm:p-5 rounded-2xl bg-[#f8fafc] border border-[#e2e8f0] space-y-2 shadow-xs hover:border-red-600 transition-colors">
                 <div className="flex items-center gap-2 text-red-600">
                   <Scissors className="w-4 h-4" />
-                  <span className="text-xs font-mono font-bold uppercase">Tailored Boxy Silhouette</span>
+                  <span className="text-xs font-mono font-bold uppercase">Everyday Merch Styling</span>
                 </div>
                 <p className="text-xs text-[#64748b] leading-relaxed">
-                  Every pattern cut features reinforced ribbing, dropped shoulder contours, and shrink-resistant combed cotton yarns.
+                  Styling previews showcase casual ways to pair graphic tops, layers, and accessories across the collection.
                 </p>
               </div>
             </div>
@@ -42,10 +43,10 @@ export const BrandStorySection: React.FC = () => {
               <div className="p-4 sm:p-5 rounded-2xl bg-red-50 border border-red-200 space-y-2 shadow-xs hover:border-red-600 transition-colors">
                 <div className="flex items-center gap-2 text-red-700">
                   <ShieldCheck className="w-4 h-4" />
-                  <span className="text-xs font-mono font-bold uppercase">Pigment & Acid Wash Finishing</span>
+                  <span className="text-xs font-mono font-bold uppercase">Visual Look Previews</span>
                 </div>
                 <p className="text-xs text-[#64748b] leading-relaxed">
-                  Curated drop pieces undergo individual garment enzyme treatments for unique patina and soft hand feel.
+                  These AI-generated styling previews offer visual inspiration; see individual product pages for item photos and details.
                 </p>
               </div>
               <div className="relative rounded-2xl overflow-hidden aspect-[4/5] bg-[#f8fafc] border border-[#e2e8f0] shadow-xs group hover:border-red-600 transition-colors motion-reduce:transition-none">
@@ -71,15 +72,15 @@ export const BrandStorySection: React.FC = () => {
           <div className="lg:col-span-6 space-y-6">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#f8fafc] border border-[#e2e8f0] text-xs font-mono font-bold text-red-600 shadow-xs">
               <Zap className="w-3.5 h-3.5" />
-              <span>THE DIRECT MERCH ATELIER</span>
+              <span>SANELOW MERCH COLLECTION</span>
             </div>
 
             <div className="space-y-3">
               <h2 className="text-2xl sm:text-4xl font-heading font-extrabold text-[#0f172a] leading-tight tracking-tight">
-                Crafted Without Compromise. Powered By Shopify Checkout.
+                Music-inspired style. Explore the collection.
               </h2>
               <p className="text-sm text-[#64748b] leading-relaxed">
-                Direct-to-consumer streetwear apparel without retail markups or middleman distributor licensing fees. Every piece is catalogued live through our Shopify storefront and dispatched with verified tracking.
+                Explore Sanelow apparel and accessories. Check each product page for available colours, sizes, materials, and product details.
               </p>
             </div>
 
@@ -91,10 +92,10 @@ export const BrandStorySection: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-[#0f172a] font-mono uppercase tracking-wider">
-                    Heavyweight Structured Weaves
+                    Explore the range
                   </h4>
                   <p className="text-xs text-[#64748b] mt-0.5">
-                    We source dense loopback French Terry and combed ring-spun jerseys for structured drape and everyday comfort.
+                    Browse apparel and accessories across the store.
                   </p>
                 </div>
               </div>
@@ -105,10 +106,10 @@ export const BrandStorySection: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-[#0f172a] font-mono uppercase tracking-wider">
-                    PCI-Compliant Shopify Checkout
+                    Choose your style
                   </h4>
                   <p className="text-xs text-[#64748b] mt-0.5">
-                    Your transactions are processed directly on Shopify's Level 1 PCI-DSS secure checkout infrastructure.
+                    View available sizes and colours on each product page.
                   </p>
                 </div>
               </div>
@@ -119,28 +120,35 @@ export const BrandStorySection: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-[#0f172a] font-mono uppercase tracking-wider">
-                    Official Shopify Order Tracking
+                    Need a hand?
                   </h4>
                   <p className="text-xs text-[#64748b] mt-0.5">
-                    Receive automated email and SMS dispatch notifications with courier tracking links as your order is fulfilled.
+                    For merchandise questions, contact{' '}
+                    <a
+                      href={`mailto:${STORE_CONTACT_EMAIL}`}
+                      className="text-[#0f172a] font-semibold underline hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
+                    >
+                      {STORE_CONTACT_EMAIL}
+                    </a>
+                    .
                   </p>
                 </div>
               </div>
             </div>
 
             {/* Pillars */}
-            <div className="pt-4 border-t border-[#e2e8f0] grid grid-cols-3 gap-4 text-center">
+            <div className="pt-4 border-t border-[#e2e8f0] grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-center">
               <div className="p-3 rounded-xl bg-[#f8fafc] border border-[#e2e8f0]">
-                <div className="text-xl sm:text-2xl font-bold font-mono text-[#0f172a]">USD</div>
-                <div className="text-[11px] text-[#64748b] font-sans">South Africa Context</div>
+                <div className="text-base sm:text-lg font-bold font-mono text-[#0f172a]">Apparel</div>
+                <div className="text-[11px] text-[#64748b] font-sans">Collection styles</div>
               </div>
               <div className="p-3 rounded-xl bg-red-50/50 border border-red-100">
-                <div className="text-xl sm:text-2xl font-bold font-mono text-red-600">100%</div>
-                <div className="text-[11px] text-[#64748b] font-sans">Official Storefront</div>
+                <div className="text-base sm:text-lg font-bold font-mono text-red-600">Accessories</div>
+                <div className="text-[11px] text-[#64748b] font-sans">Collection details</div>
               </div>
               <div className="p-3 rounded-xl bg-[#f8fafc] border border-[#e2e8f0]">
-                <div className="text-xl sm:text-2xl font-bold font-mono text-[#0f172a]">Direct</div>
-                <div className="text-[11px] text-[#64748b] font-sans">Shopify Fulfillment</div>
+                <div className="text-base sm:text-lg font-bold font-mono text-[#0f172a]">Music-inspired</div>
+                <div className="text-[11px] text-[#64748b] font-sans">Sanelow aesthetic</div>
               </div>
             </div>
           </div>
