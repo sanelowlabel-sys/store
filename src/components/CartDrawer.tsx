@@ -181,7 +181,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         <div className="px-4 sm:px-5 py-2.5 sm:py-3 bg-[#f8fafc] border-b border-[#e2e8f0] text-xs font-mono text-[#64748b] flex items-center justify-between shrink-0">
           <span className="flex items-center gap-1.5 text-[#0f172a]">
             <Truck className="w-3.5 h-3.5 text-red-600" />
-            <span>Official Shopify Storefront Cart</span>
+            <span>Your merchandise bag</span>
           </span>
           <span className="text-[11px] font-bold text-red-600 uppercase">
             {currencyCode} Context
@@ -198,7 +198,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <div>
                 <h3 className="text-base font-heading font-extrabold text-[#0f172a]">Your bag is empty</h3>
                 <p className="text-xs text-[#64748b] mt-1 max-w-xs leading-relaxed">
-                  Browse our live collection of custom-milled apparel and exclusive streetwear drops.
+                  Browse Sanelow apparel and accessories.
                 </p>
               </div>
               <button
@@ -209,7 +209,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 }}
                 className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-[#b91c1c] text-white text-xs font-semibold uppercase tracking-wider transition-colors shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 motion-reduce:transition-none"
               >
-                Explore Merch Drops
+                Explore merch
               </button>
             </div>
           ) : (
@@ -395,7 +395,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </a>
                 <div className="flex items-center justify-between px-1 text-[11px] text-[#64748b]">
                   <span className="flex items-center gap-1 text-emerald-600 font-medium">
-                    <Check className="w-3.5 h-3.5" /> Bag revalidated with Shopify
+                    <Check className="w-3.5 h-3.5" /> Continue to checkout
                   </span>
                   <button
                     type="button"
@@ -440,10 +440,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="flex items-center justify-center gap-3 pt-1 text-[11px] font-mono text-[#64748b]">
               <span className="flex items-center gap-1 text-[#64748b]">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                Shopify PCI-Compliant Checkout
+                Review your order at checkout
               </span>
               <span>•</span>
-              <span className="text-[#64748b]">South Africa Delivery</span>
+              <span className="text-[#64748b]">Delivery options at checkout</span>
             </div>
           </div>
         )}
