@@ -1296,7 +1296,11 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     assert.ok(populatedHtml.includes('USD Context'));
     assert.ok(populatedHtml.includes('Sanelow Graphic Tee'));
     assert.ok(populatedHtml.includes('$90.00') && populatedHtml.includes('USD'));
-    assert.ok(populatedHtml.includes('Calculated at Shopify checkout'));
+    assert.ok(populatedHtml.includes('Subtotal'));
+    assert.ok(populatedHtml.includes('Estimated Total'));
+    assert.ok(populatedHtml.includes('Review shipping, taxes, discounts, and the final amount at checkout.'));
+    assert.ok(populatedHtml.includes('This estimate reflects the current cart and may change at checkout.'));
+    assert.ok(!populatedHtml.includes('The current estimate differs from the subtotal. Review the breakdown at checkout.'));
     assert.ok(populatedHtml.includes('Review your order at checkout'));
     assert.ok(populatedHtml.includes('Delivery options at checkout'));
 
@@ -1305,6 +1309,9 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
       'Shopify PCI-Compliant Checkout',
       'South Africa Delivery',
       'Bag revalidated with Shopify',
+      'Shipping &amp; Taxes',
+      'Shipping & Taxes',
+      'Calculated at Shopify checkout',
     ]) {
       assert.ok(!populatedHtml.includes(oldText), `Populated CartDrawer must not contain "${oldText}"`);
     }
@@ -1317,6 +1324,7 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     assert.ok(!cartDrawerSource.includes('Shopify PCI-Compliant Checkout'));
     assert.ok(!cartDrawerSource.includes('South Africa Delivery'));
     assert.ok(!cartDrawerSource.includes('Explore Merch Drops'));
+    assert.ok(!cartDrawerSource.includes('Calculated at Shopify checkout'));
   });
 
   it('38. HeroBanner renders replacement wording with and without a featured product and omits unsupported claims', () => {
@@ -1563,8 +1571,232 @@ describe('Preview Routing, Currency & Polling Specifications', () => {
     assert.ok(html.includes('id="wishlist-drawer-btn"'));
     assert.ok(html.includes('id="cart-drawer-btn"'));
   });
+
+  it('41. CartDrawer formats each amount in its attached currency, handles equal/different/zero/missing amounts, and never infers shipping via subtraction', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const { formatPrice } = await import('../src/lib/shopify');
+
+    const renderCart = (cart: ShopifyCart) =>
+      renderToStaticMarkup(
+        React.createElement(CartDrawer, {
+          isOpen: true,
+          onClose: () => {},
+          cart,
+          isLoading: false,
+          onUpdateQuantity: () => {},
+          onRemoveItem: () => {},
+          onApplyDiscount: async () => ({ success: false }),
+          onBrowseProducts: () => {},
+        })
+      );
+
+    const makeCartPayload = (overrides: {
+      subtotal?: any;
+      total?: any;
+      lineTotal?: any;
+      unitPrice?: any;
+      quantity?: number;
+    }): ShopifyCart => ({
+      id: 'gid://shopify/Cart/totals-test',
+      checkoutUrl: 'https://sx71id-uy.myshopify.com/cart/c/totals-test',
+      totalQuantity: overrides.quantity ?? 2,
+      cost: {
+        subtotalAmount: overrides.subtotal,
+        totalAmount: overrides.total,
+      } as any,
+      discountCodes: [],
+      lines: [
+        {
+          id: 'gid://shopify/CartLine/1',
+          quantity: overrides.quantity ?? 2,
+          cost: {
+            amountPerQuantity: overrides.unitPrice ?? { amount: '45.00', currencyCode: 'USD' },
+            subtotalAmount: overrides.subtotal ?? { amount: '90.00', currencyCode: 'USD' },
+            totalAmount: overrides.lineTotal,
+          } as any,
+          merchandise: {
+            id: 'gid://shopify/ProductVariant/1',
+            title: 'L / Black',
+            availableForSale: true,
+            sku: 'SNL-TEE-01',
+            selectedOptions: [{ name: 'Size', value: 'L' }],
+            price: overrides.unitPrice,
+            product: {
+              id: 'gid://shopify/Product/1',
+              title: 'Sanelow Graphic Tee',
+              handle: 'sanelow-graphic-tee',
+            },
+          } as any,
+          discountAllocations: [],
+        },
+      ],
+    });
+
+    const checkoutNote = 'Review shipping, taxes, discounts, and the final amount at checkout.';
+    const estimateNote = 'This estimate reflects the current cart and may change at checkout.';
+    const diffNote = 'The current estimate differs from the subtotal. Review the breakdown at checkout.';
+
+    // 1. Equal amounts (including equivalent decimal representations '90.00' vs '90')
+    {
+      const html = renderCart(
+        makeCartPayload({
+          subtotal: { amount: '90.00', currencyCode: 'USD' },
+          total: { amount: '90', currencyCode: 'USD' },
+          lineTotal: { amount: '90.00', currencyCode: 'USD' },
+          unitPrice: { amount: '45.00', currencyCode: 'USD' },
+        })
+      );
+      assert.ok(html.includes(checkoutNote));
+      assert.ok(html.includes(estimateNote));
+      assert.ok(!html.includes(diffNote), 'Equal amounts must not render the difference notice');
+      assert.ok(!html.includes('Unavailable'));
+      assert.ok(html.includes('whitespace-normal break-words'), 'Notes must wrap within drawer at phone widths');
+    }
+
+    // 2. Different amounts in same currency (higher total and lower total), with zero subtraction inference
+    {
+      const higherTotalHtml = renderCart(
+        makeCartPayload({
+          subtotal: { amount: '90.00', currencyCode: 'USD' },
+          total: { amount: '105.00', currencyCode: 'USD' },
+          lineTotal: { amount: '90.00', currencyCode: 'USD' },
+          unitPrice: { amount: '45.00', currencyCode: 'USD' },
+        })
+      );
+      assert.ok(higherTotalHtml.includes(formatPrice(90, 'USD')));
+      assert.ok(higherTotalHtml.includes(formatPrice(105, 'USD')));
+      assert.ok(higherTotalHtml.includes(checkoutNote));
+      assert.ok(higherTotalHtml.includes(estimateNote));
+      assert.ok(higherTotalHtml.includes(diffNote));
+      assert.ok(
+        !higherTotalHtml.includes('15.00'),
+        'Must not compute or display a subtracted difference (105 - 90 = 15.00)'
+      );
+      assert.ok(!higherTotalHtml.includes('Shipping &amp; Taxes'));
+
+      const lowerTotalHtml = renderCart(
+        makeCartPayload({
+          subtotal: { amount: '90.00', currencyCode: 'USD' },
+          total: { amount: '75.00', currencyCode: 'USD' },
+          lineTotal: { amount: '90.00', currencyCode: 'USD' },
+          unitPrice: { amount: '45.00', currencyCode: 'USD' },
+        })
+      );
+      assert.ok(lowerTotalHtml.includes(formatPrice(90, 'USD')));
+      assert.ok(lowerTotalHtml.includes(formatPrice(75, 'USD')));
+      assert.ok(lowerTotalHtml.includes(diffNote));
+      assert.ok(!lowerTotalHtml.includes('15.00'), 'Must not compute subtracted discount difference');
+    }
+
+    // 3. Different currencies attached to subtotal, total, line total, and unit price
+    {
+      const html = renderCart(
+        makeCartPayload({
+          subtotal: { amount: '90.00', currencyCode: 'EUR' },
+          total: { amount: '1650.00', currencyCode: 'ZAR' },
+          lineTotal: { amount: '80.00', currencyCode: 'GBP' },
+          unitPrice: { amount: '40.00', currencyCode: 'CAD' },
+          quantity: 2,
+        })
+      );
+      assert.ok(html.includes(formatPrice(90, 'EUR')), 'Subtotal must use EUR');
+      assert.ok(html.includes(formatPrice(1650, 'ZAR')), 'Estimated Total must use ZAR');
+      assert.ok(html.includes(formatPrice(80, 'GBP')), 'Line total must use GBP');
+      assert.ok(html.includes(`${formatPrice(40, 'CAD')} each`), 'Unit price must use CAD');
+      assert.ok(
+        !html.includes(diffNote),
+        'Different currencies between subtotal and total must skip the difference comparison'
+      );
+      assert.ok(!html.includes('Unavailable'));
+    }
+
+    // 4. Zero amounts (both zero -> equal; positive subtotal + zero total -> differs)
+    {
+      const bothZeroHtml = renderCart(
+        makeCartPayload({
+          subtotal: { amount: '0.00', currencyCode: 'USD' },
+          total: { amount: '0.00', currencyCode: 'USD' },
+          lineTotal: { amount: '0.00', currencyCode: 'USD' },
+          unitPrice: { amount: '0.00', currencyCode: 'USD' },
+        })
+      );
+      assert.ok(bothZeroHtml.includes(formatPrice(0, 'USD')));
+      assert.ok(!bothZeroHtml.includes('Unavailable'), 'Valid zero amounts must not show Unavailable');
+      assert.ok(!bothZeroHtml.includes(diffNote));
+
+      const zeroTotalOnlyHtml = renderCart(
+        makeCartPayload({
+          subtotal: { amount: '90.00', currencyCode: 'USD' },
+          total: { amount: '0.00', currencyCode: 'USD' },
+          lineTotal: { amount: '90.00', currencyCode: 'USD' },
+          unitPrice: { amount: '45.00', currencyCode: 'USD' },
+        })
+      );
+      assert.ok(zeroTotalOnlyHtml.includes(formatPrice(90, 'USD')));
+      assert.ok(zeroTotalOnlyHtml.includes(formatPrice(0, 'USD')));
+      assert.ok(
+        zeroTotalOnlyHtml.includes(diffNote),
+        'Valid 0.00 total differing from 90.00 subtotal must show the difference notice'
+      );
+    }
+
+    // 5. Missing and invalid monetary amounts/currencies render "Unavailable", never 0.00, and skip difference note
+    {
+      const missingCases = [
+        makeCartPayload({
+          subtotal: undefined,
+          total: { amount: '90.00', currencyCode: 'USD' },
+          lineTotal: { amount: '90.00', currencyCode: 'USD' },
+          unitPrice: { amount: '45.00', currencyCode: 'USD' },
+        }),
+        makeCartPayload({
+          subtotal: { amount: '90.00', currencyCode: 'USD' },
+          total: null,
+          lineTotal: { amount: '90.00', currencyCode: 'USD' },
+          unitPrice: { amount: '45.00', currencyCode: 'USD' },
+        }),
+        makeCartPayload({
+          subtotal: { amount: 'not-a-number', currencyCode: 'USD' },
+          total: { amount: '90.00', currencyCode: '' },
+          lineTotal: { amount: '-10.00', currencyCode: 'USD' },
+          unitPrice: { amount: '12px', currencyCode: 'USD' },
+          quantity: 2,
+        }),
+      ];
+
+      for (const badCart of missingCases) {
+        const html = renderCart(badCart);
+        assert.ok(html.includes('Unavailable'), 'Missing/invalid values must render "Unavailable"');
+        assert.ok(!html.includes('$0.00'), 'Missing/invalid values must never render misleading $0.00');
+        assert.ok(
+          !html.includes(diffNote),
+          'Difference note must be skipped when values cannot be validly compared'
+        );
+      }
+
+      // Check specifically that invalid lineTotal/unitPrice render Unavailable without falling back to cart currency
+      const invalidLineHtml = renderCart(
+        makeCartPayload({
+          subtotal: { amount: '90.00', currencyCode: 'USD' },
+          total: { amount: '90.00', currencyCode: 'USD' },
+          lineTotal: { amount: '', currencyCode: 'USD' },
+          unitPrice: { amount: '45.00', currencyCode: 'BAD' },
+          quantity: 2,
+        })
+      );
+      const unavailableMatches = invalidLineHtml.match(/Unavailable/g) || [];
+      assert.equal(
+        unavailableMatches.length,
+        2,
+        'Both invalid line total and invalid unit price must render Unavailable'
+      );
+      assert.ok(!invalidLineHtml.includes('$45.00'), 'Invalid currency code must not fall back to USD');
+    }
+
+    // 6. Source safety check: no subtraction-based shipping inference in CartDrawer
+    const cartDrawerSource = fs.readFileSync(path.resolve('src/components/CartDrawer.tsx'), 'utf-8');
+    assert.ok(!cartDrawerSource.includes('totalAmount - subtotalAmount'));
+    assert.ok(!cartDrawerSource.includes('parseFloat(cart.cost'));
+  });
 });
-
-
-
-
